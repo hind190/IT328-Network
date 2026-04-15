@@ -56,7 +56,7 @@ public class ClientHandler extends Thread {
                 
                 if (message.startsWith("PLAY")) {
                     server.addToWaitingRoom(this);
-                    sendMessage("PLAY_OK:Added to waiting room");
+                    // لا ترسل PLAY_OK هنا
                 }
                 else if (message.startsWith("LEAVE")) {
                     server.removeFromWaitingRoom(this);

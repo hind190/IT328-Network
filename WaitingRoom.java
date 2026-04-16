@@ -3,18 +3,18 @@ package server;
 import java.util.concurrent.CopyOnWriteArrayList;
 
 public class WaitingRoom {
-    private static final int MAX_PLAYERS = 4;  // الحد الأقصى 4 لاعبين
+    private static final int MAX_PLAYERS = 4;     
     private CopyOnWriteArrayList<ClientHandler> waitingPlayers = new CopyOnWriteArrayList<>();
 
     public void addPlayer(ClientHandler player) {
-        // إذا كانت الغرفة ممتلئة، أرسل رفض ولا تضف اللاعب
+        
         if (waitingPlayers.size() >= MAX_PLAYERS) {
             player.sendMessage("WAITING_FULL:Room is full (max 4 players)");
             System.out.println("[WaitingRoom] Rejected " + player.getUsername() + " - room full");
             return;
         }
         waitingPlayers.add(player);
-        player.sendMessage("PLAY_OK:Added to waiting room");  // <-- هذا السطر المضاف
+        player.sendMessage("PLAY_OK:Added to waiting room");  
         broadcastWaitingList();
         System.out.println("[WaitingRoom] " + player.getUsername() + " joined. Total: " + waitingPlayers.size());
     }

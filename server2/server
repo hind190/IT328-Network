@@ -1,0 +1,254 @@
+package server;
+// الاستيراد
+import java.io.IOException;
+import java.net.ServerSocket; //لاستقبال الاتصالات يفتح السيرفر 
+import java.net.Socket; //تمثل كل لاعب متصل
+import java.util.ArrayList;// لتخزين الاعبين
+import java.util.List;
+
+public class Server {
+    
+    private ServerSocket serverSocket; //استقبل الكلاينت
+    private List<ClientHandler> clients = new ArrayList<>(); //اخزن الكلاينت
+    private WaitingRoom waitingRoom = new WaitingRoom(); //غرفة الانتظار
+    private boolean running = true; // تشغيل السيرفر
+
+    public void start(int port) {// ابدا تشغيل السيرفر
+        try {
+            serverSocket = new ServerSocket(port);// فتح اتصال على قناة معينة
+            System.out.println("Server is running on port " + port);
+
+            while (running) {// دايم ينتظر الاعبين
+                Socket socket = serverSocket.accept();// يتنظراتصال جديد من الاعب
+                System.out.println("New client connected: " + socket.getInetAddress());// يطبع الاي بي للاعب الي جاه
+
+                ClientHandler clientHandler = new ClientHandler(socket, this); ///ننشئ كلاس هنلدلر لكل لاعب نعالجه بشكل مستقل
+                clientHandler.start();  // ننشئ ثريد لكل لاعب جديد ** الثريد لتحكم بعدة كلاينت بنفس الوقت
+            }
+
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+    }
+
+    public synchronized void addClient(ClientHandler client) {//اضافة لاعب للست /السكرونيز لمنع تعارض بيانات الاعبين 
+        clients.add(client); // الاضافة للست
+    }
+
+    public synchronized void removeClient(ClientHandler client) {// حذف لاعب من اللست
+        clients.remove(client);// الحذف 
+        waitingRoom.removePlayer(client);// الحذف من الويتنق روم
+    } 
+
+    public synchronized void broadcastPlayerList() {// ارسال قائمة الاعبين لكل لاعب
+        if (clients.isEmpty()) return; // التاكد من ان اللست موفاضية
+        
+        StringBuilder sb = new StringBuilder("PLAYER_LIST:"); // نجهز الرسالة 
+        for (int i = 0; i < clients.size(); i++) { // نمر على لاعب لاعب
+            if (i > 0) sb.append(",");
+            sb.append(clients.get(i).getUsername()); // نضيف الاسم للقائمة الي بنتعرض
+        }
+        String msg = sb.toString(); // تحويل لسترنق
+        for (ClientHandler c : clients) {
+            c.sendMessage(msg); // ارسل لكل لاعب هذي الاقائمة 
+        }
+    }
+
+    public void addToWaitingRoom(ClientHandler handler) { // اضافة لاعب لغرقة الانتظار
+        waitingRoom.addPlayer(handler);
+    }
+
+    public void removeFromWaitingRoom(ClientHandler handler) { // حذق لاعب من الويتنق روم
+        waitingRoom.removePlayer(handler);
+    }
+
+    public static void main(String[] args) {
+        new Server().start(1234);// البورت للسيرفر
+    }
+
+    // ****************** PHASE 2 ******************
+   
+    
+    // متغيرات جديدة لإدارة اللعبة
+    private List<ClientHandler> gamePlayers = new ArrayList<>();  // اللاعبين اللي داخل اللعبة فعلاً
+    private int currentRound = 0;           // الروند الحالي (يبدأ من 1 إلى 5)
+    private boolean gameActive = false;      // هل اللعبة شغالة الآن؟
+    private final int TOTAL_ROUNDS = 5;      // عدد الروندات الكلي = 5
+    
+    // ****************** دالة بدء اللعبة ******************
+    // تستدعيها غرفة الانتظار أو الشخص الثاني عندما يحين وقت بدء اللعبة
+    // الشروط: لازم يكون على الأقل 2 لاعبين في غرفة الانتظار
+    public synchronized void startGame() {
+        // إذا اللعبة شغالة خلاص، ما نبدأ مرة ثانية
+        if (gameActive) {
+            broadcastToAll("ERROR:Game already started");
+            return;
+        }
+        
+        // نتأكد أن عدد اللاعبين في غرفة الانتظار كافي (على الأقل 2)
+        if (waitingRoom.getPlayerCount() < 2) {
+            broadcastToAll("ERROR:Not enough players (need at least 2)");
+            return;
+        }
+        
+        System.out.println("Starting game with " + waitingRoom.getPlayerCount() + " players");
+        
+        // نشغل اللعبة
+        gameActive = true;
+        currentRound = 0;
+        
+        // ننقل اللاعبين من غرفة الانتظار إلى قائمة اللاعبين في اللعبة
+        gamePlayers.clear();
+        gamePlayers.addAll(waitingRoom.getAllPlayers());
+        
+        // نفضي غرفة الانتظار
+        waitingRoom.clear();
+        
+        // نرسل إشارة بدء اللعبة لكل اللاعبين اللي داخل اللعبة
+        broadcastToGamePlayers("GAME_START");
+        
+        // نبدأ أول جولة
+        nextRound();
+    }
+    
+    // ****************** دالة بدأ الجولة التالية ******************
+    // تستدعي نفسها تلقائياً بعد كل جولة
+    private void nextRound() {
+        // إذا اللعبة انتهت، نوقف
+        if (!gameActive) return;
+        
+        currentRound++;
+        
+        // إذا خلصنا الروندات الخمسة → ننهي اللعبة
+        if (currentRound > TOTAL_ROUNDS) {
+            endGame(null);
+            return;
+        }
+        
+        System.out.println("Phase 2 - Starting round " + currentRound + "/" + TOTAL_ROUNDS);
+        
+        // نرسل أمر الروند لكل اللاعبين في اللعبة
+        // الصيغة: ROUND:رقم_الروند/عدد_الروندات_الكلي
+        String roundMsg = "ROUND:" + currentRound + "/" + TOTAL_ROUNDS;
+        broadcastToGamePlayers(roundMsg);
+    }
+    
+    // ****************** دالة إنهاء اللعبة ******************
+    // @param winnerName: اسم الفائز (إذا null معناها مافيه فائز)
+    public synchronized void endGame(String winnerName) {
+        if (!gameActive) return;
+        
+        gameActive = false;
+        
+        String endMsg;
+        if (winnerName != null && !winnerName.isEmpty()) {
+            endMsg = "GAME_END:" + winnerName;
+            System.out.println("Phase 2 - Game ended. Winner: " + winnerName);
+        } else {
+            endMsg = "GAME_END:NO_WINNER";
+            System.out.println("Phase 2 - Game ended. No winner");
+        }
+        
+        // نرسل رسالة نهاية اللعبة لكل اللاعبين المتصلين
+        broadcastToAll(endMsg);
+        
+        // ننظف قائمة اللاعبين في اللعبة عشان الجولة الجاية
+        gamePlayers.clear();
+    }
+    
+    // ****************** دالة بث رسالة لكل اللاعبين المتصلين (سواء في اللعبة أو لا) ******************
+    public void broadcastToAll(String message) {
+        for (ClientHandler c : clients) {
+            c.sendMessage(message);
+        }
+    }
+    
+    // ****************** دالة بث رسالة للاعبين اللي داخل اللعبة فقط ******************
+    public void broadcastToGamePlayers(String message) {
+        for (ClientHandler c : gamePlayers) {
+            c.sendMessage(message);
+        }
+    }
+    
+    // ****************** دالة بث النقاط المحدثة (يستقبلها من الشخص الثالث ويرسلها للكل) ******************
+    public void broadcastScores(String scoresData) {
+        broadcastToAll("SCORE:" + scoresData);
+    }
+    
+    // ****************** دالة معالجة مغادرة لاعب أثناء اللعبة ******************
+    // تستدعى من ClientHandler عندما يرسل LEAVE أو عندما ينقطع الاتصال
+    public synchronized void handlePlayerLeave(ClientHandler player) {
+        String username = player.getUsername();
+        System.out.println("Phase 2 - Player leaving: " + username);
+        
+        // نشيل اللاعب من جميع القوائم
+        gamePlayers.remove(player);
+        waitingRoom.removePlayer(player);
+        
+        // نعلم جميع اللاعبين أن هذا اللاعب غادر
+        broadcastToAll("PLAYER_LEFT:" + username);
+        
+        // إذا كانت اللعبة شغالة وبقي لاعب واحد فقط → ننهي اللعبة ونجعله فائز
+        if (gameActive) {
+            if (gamePlayers.size() == 1) {
+                endGame(gamePlayers.get(0).getUsername());
+            } else if (gamePlayers.isEmpty()) {
+                endGame(null);
+            }
+        }
+    }
+    
+    // ****************** دالة استقبال إجابة من لاعب ******************
+    // يناديها الـ ClientHandler لما يجيه إجابة من اللاعب
+    // السيرفر فقط يستقبل الإجابة ويمررها للشخص الثالث (مسؤول النقاط)
+    public void receiveAnswer(ClientHandler player, String answer, int round) {
+        if (!gameActive) {
+            player.sendMessage("ERROR:Game not active");
+            return;
+        }
+        
+        System.out.println("Phase 2 - Answer from " + player.getUsername() + ", round " + round + ": " + answer);
+        
+        // هنا المفروض تمرري الإجابة للشخص الثالث
+        // scoreManager.submitAnswer(player.getUsername(), answer, round);
+        
+        // حالياً: مجرد تأكيد للاعب أن الإجابة وصلت
+        player.sendMessage("ANSWER_RECEIVED:Round " + round);
+    }
+    
+    // ****************** دوال مساعدة للتواصل مع الكلاسات الأخرى ******************
+    
+    // ترجع عدد اللاعبين في غرفة الانتظار
+    public int getWaitingRoomSize() {
+        return waitingRoom.getPlayerCount();
+    }
+    
+    // ترجع قائمة بكل اللاعبين في غرفة الانتظار
+    public List<ClientHandler> getWaitingRoomPlayers() {
+        return waitingRoom.getAllPlayers();
+    }
+    
+    // تفضي غرفة الانتظار
+    public void clearWaitingRoom() {
+        waitingRoom.clear();
+    }
+    
+    // ترجع قائمة أسماء اللاعبين اللي داخل اللعبة
+    public List<String> getGamePlayerNames() {
+        List<String> names = new ArrayList<>();
+        for (ClientHandler p : gamePlayers) {
+            names.add(p.getUsername());
+        }
+        return names;
+    }
+    
+    // هل اللعبة شغالة؟
+    public boolean isGameActive() {
+        return gameActive;
+    }
+    
+    // كم الروند الحالي؟
+    public int getCurrentRound() {
+        return currentRound;
+    }
+}

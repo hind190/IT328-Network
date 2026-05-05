@@ -1,90 +1,79 @@
 package server;
 
-import java.util.concurrent.CopyOnWriteArrayList; // لست امانه للثردز المضونة
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.List;
 import java.util.ArrayList;
 
 public class WaitingRoom {
-    private static final int MAX_PLAYERS = 4;   // عدد الاعبين المسموح به في الويتنق روم  
-    private CopyOnWriteArrayList<ClientHandler> waitingPlayers = new CopyOnWriteArrayList<>(); // قائمة اللعبين الموجودين في غرفة الانتظار
+    private static final int MAX_PLAYERS = 4;
+    private CopyOnWriteArrayList<ClientHandler> waitingPlayers = new CopyOnWriteArrayList<>();
+    private Server server;
 
-    // ****************** PHASE 1 - الموجود عندك ******************
+    // الكونستركتر
+    public WaitingRoom(Server server) {
+        this.server = server;
+    }
+
+    // ****************** PHASE 1 ******************
     
-    public void addPlayer(ClientHandler player) {// اضافة للويتنق روم
-        
-        if (waitingPlayers.size() >= MAX_PLAYERS) { // نتحقق من العدد الاقصى
+    public void addPlayer(ClientHandler player) {
+        if (waitingPlayers.size() >= MAX_PLAYERS) {
             player.sendMessage("WAITING_FULL:Room is full (max 4 players)");
-            System.out.println("[WaitingRoom] Rejected " + player.getUsername() + " - room full"); // رسال تظهر للسيرفر للتبع
+            System.out.println("[WaitingRoom] Rejected " + player.getUsername() + " - room full");
             return;
         }
-        waitingPlayers.add(player); // اذا فيه مكان نضيف الاعب
-        player.sendMessage("PLAY_OK:Added to waiting room");  // تاكيد دخوله للويتنق روم
-        broadcastWaitingList();// نحدث قائمة الاعبين
-        System.out.println("[WaitingRoom] " + player.getUsername() + " joined. Total: " + waitingPlayers.size());// نطبع مين دخل وكم العدد
+        waitingPlayers.add(player);
+        player.sendMessage("PLAY_OK:Added to waiting room");
+        broadcastWaitingList();
+        System.out.println("[WaitingRoom] " + player.getUsername() + " joined. Total: " + waitingPlayers.size());
+        
+        // إعلام الـ GameLogic بدخول لاعب (للتايمر)
+        if (server != null) {
+            server.getGameLogic().onPlayerJoinedWaitingRoom(waitingPlayers.size());
+            server.getGameLogic().checkAndStartGameIfFull(waitingPlayers.size());
+        }
     }
 
-    public void removePlayer(ClientHandler player) { // حذف اللاعب من غرفة ا لانتظار
-        waitingPlayers.remove(player);// الحذف من القائمة
-        broadcastWaitingList(); // نحد القائمة للجميع
-        System.out.println("[WaitingRoom] " + player.getUsername() + " left. Remaining: " + waitingPlayers.size());// تحديث للوضع
+    public void removePlayer(ClientHandler player) {
+        waitingPlayers.remove(player);
+        broadcastWaitingList();
+        System.out.println("[WaitingRoom] " + player.getUsername() + " left. Remaining: " + waitingPlayers.size());
     }
 
-    private void broadcastWaitingList() {// ميثود خاص لكلاس الويتنق روم
-        StringBuilder sb = new StringBuilder("WAITING_LIST:"); // نبني الرساله
-        for (ClientHandler p : waitingPlayers) { // نضيف اسم لاعب لاعب
+    private void broadcastWaitingList() {
+        StringBuilder sb = new StringBuilder("WAITING_LIST:");
+        for (ClientHandler p : waitingPlayers) {
             sb.append(p.getUsername()).append(",");
         }
-        String msg = sb.toString(); // نحوله للسترينق
+        String msg = sb.toString();
         for (ClientHandler p : waitingPlayers) {
-            p.sendMessage(msg); //نرسل القائمة للاعبين الي جوا الويتنق روم فقط
+            p.sendMessage(msg);
         }
     }
     
-    // ****************** PHASE 2 - الميثودات الجديدة المطلوبة ******************
+    // ****************** PHASE 2 ******************
     
-    /**
-     * ترجع عدد اللاعبين الموجودين حالياً في غرفة الانتظار
-     * تستخدمها Server.startGame() للتأكد من وجود لاعبين كافيين
-     */
     public int getPlayerCount() {
         return waitingPlayers.size();
     }
     
-    /**
-     * ترجع قائمة بجميع اللاعبين في غرفة الانتظار
-     * تستخدمها Server.startGame() لنقل اللاعبين إلى قائمة اللعبة
-     */
     public List<ClientHandler> getAllPlayers() {
-        // نرجع نسخة جديدة من القائمة عشان ما ناثر على القائمة الأصلية
         return new ArrayList<>(waitingPlayers);
     }
     
-    /**
-     * تفرغ غرفة الانتظار بالكامل (تحذف كل اللاعبين)
-     * تستخدمها Server.startGame() بعد نقل اللاعبين إلى اللعبة
-     */
     public void clear() {
         waitingPlayers.clear();
         System.out.println("[WaitingRoom] Room cleared");
     }
     
-    /**
-     * ترجع الحد الأقصى لعدد اللاعبين في غرفة الانتظار (4)
-     */
     public int getMaxPlayers() {
         return MAX_PLAYERS;
     }
     
-    /**
-     * تتحقق إذا كانت غرفة الانتظار ممتلئة
-     */
     public boolean isFull() {
         return waitingPlayers.size() >= MAX_PLAYERS;
     }
     
-    /**
-     * ترجع true إذا كانت غرفة الانتظار فاضية
-     */
     public boolean isEmpty() {
         return waitingPlayers.isEmpty();
     }

@@ -1,54 +1,48 @@
 package server;
 
 import java.util.*;
-import java.util.Timer;
-import java.util.TimerTask;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.stream.Collectors;
 
 public class GameLogic {
 
     private Server server;
-    private Map<String, Integer> scores = new HashMap<>();
-    private Map<String, Boolean> hasAnswered = new HashMap<>();
+    private Map<String, Integer> scores = new ConcurrentHashMap<>();
+    private Set<String> correctAnsweredPlayers = new HashSet<>();
     private String correctAnswer;
     private int currentRound;
-    private int answeredCount;
     private int totalPlayers;
     private boolean roundActive;
-    
-    // Timer variables
+    private boolean correctAnswerGiven;
     private Timer waitingTimer;
     private boolean gameStarted = false;
     private int waitingPlayersCount = 0;
-    
-    // الأسئلة لكل جولة
+    private Timer gameTimer;
+    private static final int GAME_DURATION_MS = 5 * 60 * 1000;
     private final Map<Integer, Question> questions = new HashMap<>();
-    
+
     public GameLogic(Server server) {
         this.server = server;
         loadQuestions();
     }
-    
+
     private void loadQuestions() {
-        questions.put(1, new Question("🕶️", "Sunglasses"));
-        questions.put(2, new Question("🍎", "Apple"));
-        questions.put(3, new Question("🚗", "Car"));
-        questions.put(4, new Question("📚", "Book"));
-        questions.put(5, new Question("📱", "Phone"));
+        questions.put(1, new Question("level1.png", "فقمة"));
+        questions.put(2, new Question("level2.png", "عسير"));
+        questions.put(3, new Question("level3.png", "الظهران مول"));
+        questions.put(4, new Question("level4.png", "جدة ام الرخاء و الشدة"));
+        questions.put(5, new Question("level5.png", "ضربني وبكى سبقني و اشتكى"));
     }
-    
-    // ****************** TIMER ******************
-    
+
     public void onPlayerJoinedWaitingRoom(int currentCount) {
         waitingPlayersCount = currentCount;
-        
         if (waitingPlayersCount == 1 && !gameStarted) {
             startWaitingTimer();
         }
     }
-    
+
     private void startWaitingTimer() {
         System.out.println("Timer started: 30 seconds");
-        
         waitingTimer = new Timer();
         waitingTimer.schedule(new TimerTask() {
             @Override
@@ -60,47 +54,64 @@ public class GameLogic {
             }
         }, 30000);
     }
-    
+
     public void checkAndStartGameIfFull(int currentCount) {
         waitingPlayersCount = currentCount;
-        
         if (currentCount >= 4 && !gameStarted) {
             System.out.println("Max players reached (4)! Starting game immediately...");
-            cancelTimer();
+            cancelWaitingTimer();
             startGameIfPossible();
         }
     }
-    
-    private void cancelTimer() {
+
+    private void cancelWaitingTimer() {
         if (waitingTimer != null) {
             waitingTimer.cancel();
             waitingTimer = null;
         }
     }
-    
+
     private void startGameIfPossible() {
         if (gameStarted) return;
-        
         int playerCount = server.getWaitingRoomSize();
-        
         if (playerCount >= 2) {
             gameStarted = true;
-            cancelTimer();
+            cancelWaitingTimer();
             server.startGame();
         } else {
             System.out.println("Not enough players (need at least 2, have " + playerCount + ")");
         }
     }
-    
-    // ****************** إدارة الجولات ******************
-    
+
+    public void startGameTimer() {
+        cancelGameTimer();
+        System.out.println("Game timer started: 5 minutes");
+        server.broadcastToAll("GAME_TIMER:" + (GAME_DURATION_MS / 1000));
+
+        gameTimer = new Timer();
+        gameTimer.schedule(new TimerTask() {
+            @Override
+            public void run() {
+                System.out.println("Game time is up! Ending game...");
+                endGame();
+            }
+        }, GAME_DURATION_MS);
+    }
+
+    private void cancelGameTimer() {
+        if (gameTimer != null) {
+            gameTimer.cancel();
+            gameTimer = null;
+        }
+    }
+
     public void startRound(int round, int totalPlayers) {
         this.currentRound = round;
         this.totalPlayers = totalPlayers;
-        this.answeredCount = 0;
         this.roundActive = true;
-        this.hasAnswered.clear();
-        
+        this.correctAnswerGiven = false;
+        this.correctAnsweredPlayers.clear();
+
         Question q = questions.get(round);
         if (q != null) {
             this.correctAnswer = q.getAnswer();
@@ -109,60 +120,64 @@ public class GameLogic {
             server.broadcastToGamePlayers("QUESTION:" + round + ":" + image);
         }
     }
-    
-    // ****************** استقبال الإجابات والتحقق ******************
-    
-    public void submitAnswer(String username, String answer) {
-        if (!roundActive) {
+
+    public synchronized void submitAnswer(String username, String answer) {
+        if (!roundActive || correctAnswerGiven) {
+            server.broadcastToGamePlayers("ROUND_ENDED:Round has ended!");
             return;
         }
-        
-        if (hasAnswered.getOrDefault(username, false)) {
-            server.broadcastToGamePlayers("ALREADY_ANSWERED:" + username);
+
+        if (correctAnsweredPlayers.contains(username)) {
+            server.broadcastToGamePlayers("ALREADY_CORRECT:" + username);
             return;
         }
-        
+
         scores.putIfAbsent(username, 0);
-        hasAnswered.put(username, true);
-        answeredCount++;
-        
+
         if (answer.equalsIgnoreCase(correctAnswer)) {
             scores.put(username, scores.get(username) + 1);
+            correctAnsweredPlayers.add(username);
+            correctAnswerGiven = true;
+            
             server.broadcastToGamePlayers("CORRECT:" + username);
-        } else {
-            server.broadcastToGamePlayers("WRONG:" + username);
-        }
-        
-        sendScores();
-        
-        if (answeredCount >= totalPlayers) {
+            sendScores();
+            
             roundActive = false;
+            server.broadcastToGamePlayers("ROUND_END:" + username + " answered correctly! Moving to next round...");
             server.nextRound();
+            
+        } else {
+            // ✅ إجابة خاطئة - اللاعب يقدر يجاوب مرة ثانية
+            server.broadcastToGamePlayers("WRONG:" + username);
+            sendScores();
+            // لا نضيفه إلى أي Set تمنعه من المحاولة مرة أخرى
         }
     }
-    
-    // ****************** إرسال النقاط ******************
-    
+
     private void sendScores() {
-        StringBuilder sb = new StringBuilder();
-        
-        for (ClientHandler player : server.getGamePlayers()) {
-            int score = scores.getOrDefault(player.getUsername(), 0);
-            sb.append(player.getUsername()).append("=").append(score).append(",");
-        }
-        
-        server.broadcastScores(sb.toString());
+        String scoresStr = server.getGamePlayers().stream()
+                .map(p -> p.getUsername() + "=" + scores.getOrDefault(p.getUsername(), 0))
+                .collect(Collectors.joining(","));
+        server.broadcastScores(scoresStr);
     }
     
-    // ****************** إنهاء اللعبة وتحديد الفائز ******************
-    
+    public String getFormattedScores() {
+        if (scores.isEmpty()) return "";
+        
+        return server.getGamePlayers().stream()
+                .map(p -> p.getUsername() + "=" + scores.getOrDefault(p.getUsername(), 0))
+                .collect(Collectors.joining(","));
+    }
+
     public void endGame() {
         roundActive = false;
-        
+        cancelWaitingTimer();
+        cancelGameTimer();
+
         String winner = null;
         int max = -1;
         List<String> tiedPlayers = new ArrayList<>();
-        
+
         for (String user : scores.keySet()) {
             if (scores.get(user) > max) {
                 max = scores.get(user);
@@ -173,38 +188,38 @@ public class GameLogic {
                 tiedPlayers.add(user);
             }
         }
-        
+
         if (tiedPlayers.size() > 1) {
             server.endGame(null);
         } else {
             server.endGame(winner);
         }
-        
+
         scores.clear();
-        hasAnswered.clear();
+        correctAnsweredPlayers.clear();
         gameStarted = false;
         waitingPlayersCount = 0;
     }
-    
+
     public void onGameStart() {
         gameStarted = true;
-        cancelTimer();
+        cancelWaitingTimer();
+        startGameTimer();
     }
-    
+
     public boolean isGameStarted() {
         return gameStarted;
     }
-    
-    // كلاس السؤال
+
     private class Question {
         private String image;
         private String answer;
-        
+
         public Question(String image, String answer) {
             this.image = image;
             this.answer = answer;
         }
-        
+
         public String getImage() { return image; }
         public String getAnswer() { return answer; }
     }

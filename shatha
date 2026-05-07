@@ -1,81 +1,396 @@
-
 package server;
 
-import java.util.concurrent.CopyOnWriteArrayList;
-import java.util.List;
+import java.io.IOException;
+import java.net.ServerSocket;
+import java.net.Socket;
 import java.util.ArrayList;
+import java.util.List;
 
-public class WaitingRoom {
-    private static final int MAX_PLAYERS = 4;
-    private CopyOnWriteArrayList<ClientHandler> waitingPlayers = new CopyOnWriteArrayList<>();
-    private Server server;
+public class Server {
 
-    // الكونستركتر
-    public WaitingRoom(Server server) {
-        this.server = server;
+    private ServerSocket serverSocket;
+
+    private List<ClientHandler> clients =
+            new ArrayList<>();
+
+    private WaitingRoom waitingRoom;
+
+    private boolean running = true;
+
+    private GameLogic gameLogic;
+
+    // ====================== PHASE 2 ======================
+
+    private List<ClientHandler> gamePlayers =
+            new ArrayList<>();
+
+    private int currentRound = 0;
+
+    private boolean gameActive = false;
+
+    private final int TOTAL_ROUNDS = 5;
+
+    // ====================== CONSTRUCTOR ======================
+
+    public Server() {
+
+        this.gameLogic =
+                new GameLogic(this);
+
+        this.waitingRoom =
+                new WaitingRoom(this);
     }
 
-    // ****************** PHASE 1 ******************
-    
-    public void addPlayer(ClientHandler player) {
-        if (waitingPlayers.size() >= MAX_PLAYERS) {
-            player.sendMessage("WAITING_FULL:Room is full (max 4 players)");
-            System.out.println("[WaitingRoom] Rejected " + player.getUsername() + " - room full");
+    // ====================== START SERVER ======================
+
+    public void start(int port) {
+
+        try {
+
+            serverSocket =
+                    new ServerSocket(port);
+
+            System.out.println(
+                    "Server is running on port "
+                            + port
+            );
+
+            while (running) {
+
+                Socket socket =
+                        serverSocket.accept();
+
+                System.out.println(
+                        "New client connected: "
+                                + socket.getInetAddress()
+                );
+
+                ClientHandler clientHandler =
+                        new ClientHandler(socket, this);
+
+                clientHandler.start();
+            }
+
+        } catch (IOException e) {
+
+            e.printStackTrace();
+        }
+    }
+
+    // ====================== GETTERS ======================
+
+    public GameLogic getGameLogic() {
+
+        return gameLogic;
+    }
+
+    public synchronized List<ClientHandler> getClients() {
+
+        return clients;
+    }
+
+    public List<ClientHandler> getGamePlayers() {
+
+        return gamePlayers;
+    }
+
+    public int getWaitingRoomSize() {
+
+        return waitingRoom.getPlayerCount();
+    }
+
+    // ====================== CLIENTS ======================
+
+    public synchronized void addClient(
+            ClientHandler client
+    ) {
+
+        clients.add(client);
+    }
+
+    public synchronized void removeClient(
+            ClientHandler client
+    ) {
+
+        clients.remove(client);
+
+        waitingRoom.removePlayer(client);
+    }
+
+    // ====================== PLAYER LIST ======================
+
+    public synchronized void broadcastPlayerList() {
+
+        if (clients.isEmpty()) return;
+
+        StringBuilder sb =
+                new StringBuilder("PLAYER_LIST:");
+
+        for (int i = 0; i < clients.size(); i++) {
+
+            if (i > 0) sb.append(",");
+
+            sb.append(
+                    clients.get(i).getUsername()
+            );
+        }
+
+        String msg = sb.toString();
+
+        for (ClientHandler c : clients) {
+
+            c.sendMessage(msg);
+        }
+    }
+
+    // ====================== WAITING ROOM ======================
+
+    public void addToWaitingRoom(
+            ClientHandler handler
+    ) {
+
+        waitingRoom.addPlayer(handler);
+
+        gameLogic.onPlayerJoinedWaitingRoom(
+                waitingRoom.getPlayerCount()
+        );
+
+        gameLogic.checkAndStartGameIfFull(
+                waitingRoom.getPlayerCount()
+        );
+    }
+
+    public void removeFromWaitingRoom(
+            ClientHandler handler
+    ) {
+
+        waitingRoom.removePlayer(handler);
+    }
+
+    // ====================== START GAME ======================
+
+    public synchronized void startGame() {
+
+        if (gameActive) {
             return;
         }
-        waitingPlayers.add(player);
-        player.sendMessage("PLAY_OK:Added to waiting room");
-        broadcastWaitingList();
-        System.out.println("[WaitingRoom] " + player.getUsername() + " joined. Total: " + waitingPlayers.size());
-        
-        // إعلام الـ GameLogic بدخول لاعب (للتايمر)
-        if (server != null) {
-            server.getGameLogic().onPlayerJoinedWaitingRoom(waitingPlayers.size());
-            server.getGameLogic().checkAndStartGameIfFull(waitingPlayers.size());
+
+        if (waitingRoom.getPlayerCount() < 2) {
+
+            broadcastToAll(
+                    "ERROR:Not enough players"
+            );
+
+            return;
+        }
+
+        System.out.println("GAME STARTED");
+
+        gameActive = true;
+
+        currentRound = 0;
+
+        gamePlayers.clear();
+
+        gamePlayers.addAll(
+                waitingRoom.getAllPlayers()
+        );
+
+        waitingRoom.clear();
+
+        // مهم جدًا
+        gameLogic.onGameStart();
+
+        // إرسال بداية اللعبة
+        broadcastToGamePlayers(
+                "GAME_START"
+        );
+
+        // بدء أول جولة
+        nextRound();
+    }
+
+    // ====================== NEXT ROUND ======================
+
+    public void nextRound() {
+
+        if (!gameActive) return;
+
+        currentRound++;
+
+        System.out.println("ROUND SENT");
+
+        if (currentRound > TOTAL_ROUNDS) {
+
+            endGame(null);
+
+            return;
+        }
+
+        String roundMsg =
+                "ROUND:"
+                        + currentRound
+                        + "/"
+                        + TOTAL_ROUNDS;
+
+        broadcastToGamePlayers(roundMsg);
+
+        gameLogic.startRound(
+                currentRound,
+                gamePlayers.size()
+        );
+    }
+
+    // ====================== END GAME ======================
+
+    public synchronized void endGame(
+            String winnerName
+    ) {
+
+        if (!gameActive) return;
+
+        gameActive = false;
+
+        String endMsg;
+
+        if (winnerName != null
+                && !winnerName.isEmpty()) {
+
+            endMsg =
+                    "GAME_END:"
+                            + winnerName;
+
+            System.out.println(
+                    "Winner: "
+                            + winnerName
+            );
+
+        } else {
+
+            endMsg =
+                    "GAME_END:NO_WINNER";
+
+            System.out.println(
+                    "No winner"
+            );
+        }
+
+        broadcastToAll(endMsg);
+
+        gamePlayers.clear();
+    }
+
+    // ====================== BROADCAST ======================
+
+    public void broadcastToAll(
+            String message
+    ) {
+
+        for (ClientHandler c : clients) {
+
+            c.sendMessage(message);
         }
     }
 
-    public void removePlayer(ClientHandler player) {
-        waitingPlayers.remove(player);
-        broadcastWaitingList();
-        System.out.println("[WaitingRoom] " + player.getUsername() + " left. Remaining: " + waitingPlayers.size());
+    public void broadcastToGamePlayers(
+            String message
+    ) {
+
+        for (ClientHandler c : gamePlayers) {
+
+            c.sendMessage(message);
+        }
     }
 
-    private void broadcastWaitingList() {
-        StringBuilder sb = new StringBuilder("WAITING_LIST:");
-        for (ClientHandler p : waitingPlayers) {
-            sb.append(p.getUsername()).append(",");
+    // ====================== SCORES ======================
+
+    public void broadcastScores(
+            String scoresData
+    ) {
+
+        broadcastToAll(
+                "SCORE:" + scoresData
+        );
+    }
+
+    // ====================== PLAYER LEAVE ======================
+
+    public synchronized void handlePlayerLeave(
+            ClientHandler player
+    ) {
+
+        String username =
+                player.getUsername();
+
+        System.out.println(
+                "Player left: "
+                        + username
+        );
+
+        gamePlayers.remove(player);
+
+        waitingRoom.removePlayer(player);
+
+        broadcastToAll(
+                "PLAYER_LEFT:" + username
+        );
+
+        if (gameActive) {
+
+            if (gamePlayers.size() == 1) {
+
+                endGame(
+                        gamePlayers
+                                .get(0)
+                                .getUsername()
+                );
+
+            } else if (gamePlayers.isEmpty()) {
+
+                endGame(null);
+            }
         }
-        String msg = sb.toString();
-        for (ClientHandler p : waitingPlayers) {
-            p.sendMessage(msg);
+    }
+
+    // ====================== ANSWERS ======================
+
+    public void receiveAnswer(
+            ClientHandler player,
+            String answer,
+            int round
+    ) {
+
+        if (!gameActive) {
+
+            player.sendMessage(
+                    "ERROR:Game not active"
+            );
+
+            return;
         }
+
+        System.out.println(
+                "Answer from "
+                        + player.getUsername()
+                        + ": "
+                        + answer
+        );
+
+        gameLogic.submitAnswer(
+                player.getUsername(),
+                answer
+        );
+
+        player.sendMessage(
+                "ANSWER_RECEIVED:Round "
+                        + round
+        );
     }
-    
-    // ****************** PHASE 2 ******************
-    
-    public int getPlayerCount() {
-        return waitingPlayers.size();
-    }
-    
-    public List<ClientHandler> getAllPlayers() {
-        return new ArrayList<>(waitingPlayers);
-    }
-    
-    public void clear() {
-        waitingPlayers.clear();
-        System.out.println("[WaitingRoom] Room cleared");
-    }
-    
-    public int getMaxPlayers() {
-        return MAX_PLAYERS;
-    }
-    
-    public boolean isFull() {
-        return waitingPlayers.size() >= MAX_PLAYERS;
-    }
-    
-    public boolean isEmpty() {
-        return waitingPlayers.isEmpty();
+
+    // ====================== MAIN ======================
+
+    public static void main(String[] args) {
+
+        new Server().start(1234);
     }
 }

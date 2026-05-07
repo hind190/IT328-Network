@@ -4,20 +4,30 @@ import java.io.IOException;
 import java.net.ServerSocket;
 import java.net.Socket;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
+import java.util.Timer;
+import java.util.TimerTask;
 
 public class Server {
-    
+
     private ServerSocket serverSocket;
     private List<ClientHandler> clients = new ArrayList<>();
-    private WaitingRoom waitingRoom;  // ✅ تعديل: بدون new
+    private WaitingRoom waitingRoom;
     private boolean running = true;
     private GameLogic gameLogic;
 
-    // ✅ الكونستركتر
+    private List<ClientHandler> gamePlayers = Collections.synchronizedList(new ArrayList<>());
+    private int currentRound = 0;
+    private boolean gameActive = false;
+    private final int TOTAL_ROUNDS = 5;
+    private final int MAX_PLAYERS = 4;
+    private Timer gameStartTimer;
+    private boolean waitingForPlayers = false;
+
     public Server() {
         this.gameLogic = new GameLogic(this);
-        this.waitingRoom = new WaitingRoom(this);  // ✅ إضافة
+        this.waitingRoom = new WaitingRoom(this);
     }
 
     public void start(int port) {
@@ -28,11 +38,9 @@ public class Server {
             while (running) {
                 Socket socket = serverSocket.accept();
                 System.out.println("New client connected: " + socket.getInetAddress());
-
                 ClientHandler clientHandler = new ClientHandler(socket, this);
                 clientHandler.start();
             }
-
         } catch (IOException e) {
             e.printStackTrace();
         }
@@ -42,12 +50,20 @@ public class Server {
         return gameLogic;
     }
 
+    public synchronized List<ClientHandler> getClients() {
+        return clients;
+    }
+
     public List<ClientHandler> getGamePlayers() {
         return gamePlayers;
     }
 
-    public synchronized List<ClientHandler> getClients() {
-        return clients;
+    public int getWaitingRoomSize() {
+        return waitingRoom.getPlayerCount();
+    }
+
+    public List<ClientHandler> getWaitingRoomPlayers() {
+        return waitingRoom.getAllPlayers();
     }
 
     public synchronized void addClient(ClientHandler client) {
@@ -57,17 +73,19 @@ public class Server {
     public synchronized void removeClient(ClientHandler client) {
         clients.remove(client);
         waitingRoom.removePlayer(client);
-    } 
+        gamePlayers.remove(client);
+    }
 
     public synchronized void broadcastPlayerList() {
         if (clients.isEmpty()) return;
-        
+
         StringBuilder sb = new StringBuilder("PLAYER_LIST:");
         for (int i = 0; i < clients.size(); i++) {
             if (i > 0) sb.append(",");
             sb.append(clients.get(i).getUsername());
         }
         String msg = sb.toString();
+
         for (ClientHandler c : clients) {
             c.sendMessage(msg);
         }
@@ -75,158 +93,229 @@ public class Server {
 
     public void addToWaitingRoom(ClientHandler handler) {
         waitingRoom.addPlayer(handler);
-        gameLogic.onPlayerJoinedWaitingRoom(waitingRoom.getPlayerCount());
-        gameLogic.checkAndStartGameIfFull(waitingRoom.getPlayerCount());
+        broadcastWaitingRoomPlayers();
+        checkAndStartGameCountdown();
     }
 
     public void removeFromWaitingRoom(ClientHandler handler) {
         waitingRoom.removePlayer(handler);
+        broadcastWaitingRoomPlayers();
+        
+        if (waitingForPlayers && waitingRoom.getPlayerCount() < 2) {
+            cancelGameStartTimer();
+        }
     }
-
-    public static void main(String[] args) {
-        new Server().start(1234);
-    }
-
-    // ****************** PHASE 2 ******************
-   
-    private List<ClientHandler> gamePlayers = new ArrayList<>();
-    private int currentRound = 0;
-    private boolean gameActive = false;
-    private final int TOTAL_ROUNDS = 5;
     
+    private void broadcastWaitingRoomPlayers() {
+        List<ClientHandler> waitingPlayers = waitingRoom.getAllPlayers();
+        StringBuilder sb = new StringBuilder("WAITING_LIST:");
+        for (int i = 0; i < waitingPlayers.size(); i++) {
+            if (i > 0) sb.append(",");
+            sb.append(waitingPlayers.get(i).getUsername());
+        }
+        String msg = sb.toString();
+        
+        for (ClientHandler player : waitingPlayers) {
+            player.sendMessage(msg);
+        }
+        for (ClientHandler c : clients) {
+            c.sendMessage(msg);
+        }
+    }
+    
+    private void checkAndStartGameCountdown() {
+        int playerCount = waitingRoom.getPlayerCount();
+        
+        if (playerCount == MAX_PLAYERS && !gameActive) {
+            System.out.println("4 players reached! Starting game immediately...");
+            if (gameStartTimer != null) {
+                gameStartTimer.cancel();
+                gameStartTimer = null;
+            }
+            waitingForPlayers = false;
+            startGame();
+            return;
+        }
+        
+        if (playerCount >= 2 && !gameActive && !waitingForPlayers && playerCount < MAX_PLAYERS) {
+            startGameCountdown();
+        }
+    }
+    
+    private void startGameCountdown() {
+        waitingForPlayers = true;
+        
+        String countdownMsg = "COUNTDOWN:30 seconds until game starts. Waiting for " + 
+                              (MAX_PLAYERS - waitingRoom.getPlayerCount()) + " more player(s)...";
+        for (ClientHandler player : waitingRoom.getAllPlayers()) {
+            player.sendMessage(countdownMsg);
+        }
+        
+        gameStartTimer = new Timer();
+        gameStartTimer.schedule(new TimerTask() {
+            @Override
+            public void run() {
+                if (waitingForPlayers && !gameActive && waitingRoom.getPlayerCount() >= 2) {
+                    startGame();
+                }
+                waitingForPlayers = false;
+            }
+        }, 30000);
+    }
+    
+    private void cancelGameStartTimer() {
+        if (gameStartTimer != null) {
+            gameStartTimer.cancel();
+            gameStartTimer = null;
+        }
+        waitingForPlayers = false;
+        
+        String cancelMsg = "COUNTDOWN_CANCELLED:Not enough players. Waiting for more players...";
+        for (ClientHandler player : waitingRoom.getAllPlayers()) {
+            player.sendMessage(cancelMsg);
+        }
+    }
+
     public synchronized void startGame() {
-        if (gameActive) {
-            broadcastToAll("ERROR:Game already started");
-            return;
-        }
-        
+        if (gameActive) return;
+
         if (waitingRoom.getPlayerCount() < 2) {
-            broadcastToAll("ERROR:Not enough players (need at least 2)");
+            broadcastToAll("ERROR:Not enough players");
             return;
         }
         
-        System.out.println("Starting game with " + waitingRoom.getPlayerCount() + " players");
-        
+        if (gameStartTimer != null) {
+            gameStartTimer.cancel();
+            gameStartTimer = null;
+        }
+        waitingForPlayers = false;
+
+        System.out.println("GAME STARTED with " + waitingRoom.getPlayerCount() + " players");
         gameActive = true;
         currentRound = 0;
         
         gamePlayers.clear();
         gamePlayers.addAll(waitingRoom.getAllPlayers());
-        
         waitingRoom.clear();
-        
+
+        gameLogic.onGameStart();
         broadcastToGamePlayers("GAME_START");
         
         nextRound();
     }
-    
-    public void nextRound() {
+
+    public synchronized void nextRound() {
         if (!gameActive) return;
-        
+
         currentRound++;
-        
+
+        System.out.println("Starting round " + currentRound + " of " + TOTAL_ROUNDS);
+
         if (currentRound > TOTAL_ROUNDS) {
-            endGame(null);
+            gameLogic.endGame();
             return;
         }
-        
-        System.out.println("Phase 2 - Starting round " + currentRound + "/" + TOTAL_ROUNDS);
-        
+
         String roundMsg = "ROUND:" + currentRound + "/" + TOTAL_ROUNDS;
         broadcastToGamePlayers(roundMsg);
         
         gameLogic.startRound(currentRound, gamePlayers.size());
     }
-    
+
     public synchronized void endGame(String winnerName) {
         if (!gameActive) return;
-        
+
         gameActive = false;
         
+        if (gameStartTimer != null) {
+            gameStartTimer.cancel();
+            gameStartTimer = null;
+        }
+
         String endMsg;
         if (winnerName != null && !winnerName.isEmpty()) {
             endMsg = "GAME_END:" + winnerName;
-            System.out.println("Phase 2 - Game ended. Winner: " + winnerName);
+            System.out.println("Winner: " + winnerName);
         } else {
             endMsg = "GAME_END:NO_WINNER";
-            System.out.println("Phase 2 - Game ended. No winner");
+            System.out.println("No winner - Game ended without a winner");
         }
-        
+
         broadcastToAll(endMsg);
         gamePlayers.clear();
     }
-    
+
     public void broadcastToAll(String message) {
-        for (ClientHandler c : clients) {
-            c.sendMessage(message);
+        synchronized (clients) {
+            for (ClientHandler c : clients) {
+                c.sendMessage(message);
+            }
         }
     }
-    
+
     public void broadcastToGamePlayers(String message) {
-        for (ClientHandler c : gamePlayers) {
-            c.sendMessage(message);
+        synchronized (gamePlayers) {
+            for (ClientHandler c : gamePlayers) {
+                c.sendMessage(message);
+            }
         }
     }
-    
+
     public void broadcastScores(String scoresData) {
         broadcastToAll("SCORE:" + scoresData);
     }
     
+    public void updateScores() {
+        String scoresData = gameLogic.getFormattedScores();
+        if (scoresData != null && !scoresData.isEmpty()) {
+            broadcastScores(scoresData);
+        }
+    }
+
     public synchronized void handlePlayerLeave(ClientHandler player) {
         String username = player.getUsername();
-        System.out.println("Phase 2 - Player leaving: " + username);
-        
+        System.out.println("Player left: " + username);
+
         gamePlayers.remove(player);
         waitingRoom.removePlayer(player);
         
         broadcastToAll("PLAYER_LEFT:" + username);
-        
+        broadcastPlayerList();
+        broadcastWaitingRoomPlayers();
+
         if (gameActive) {
             if (gamePlayers.size() == 1) {
-                endGame(gamePlayers.get(0).getUsername());
+                String winner = gamePlayers.get(0).getUsername();
+                broadcastToAll("PLAYER_WON:" + winner + " (All other players left)");
+                endGame(winner);
             } else if (gamePlayers.isEmpty()) {
                 endGame(null);
+            } else {
+                updateScores();
             }
         }
     }
-    
+
     public void receiveAnswer(ClientHandler player, String answer, int round) {
         if (!gameActive) {
             player.sendMessage("ERROR:Game not active");
             return;
         }
-        
+
         System.out.println("Answer from " + player.getUsername() + ": " + answer);
-        
         gameLogic.submitAnswer(player.getUsername(), answer);
-        player.sendMessage("ANSWER_RECEIVED:Round " + round);
+        
+        updateScores();
     }
     
-    public int getWaitingRoomSize() {
-        return waitingRoom.getPlayerCount();
-    }
-    
-    public List<ClientHandler> getWaitingRoomPlayers() {
-        return waitingRoom.getAllPlayers();
-    }
-    
-    public void clearWaitingRoom() {
-        waitingRoom.clear();
-    }
-    
-    public List<String> getGamePlayerNames() {
-        List<String> names = new ArrayList<>();
-        for (ClientHandler p : gamePlayers) {
-            names.add(p.getUsername());
+    public void playerReadyToPlay(ClientHandler player) {
+        if (!gameActive && !waitingRoom.isPlayerInRoom(player)) {
+            addToWaitingRoom(player);
+            player.sendMessage("WAITING_ROOM_JOINED:You are now in the waiting room");
         }
-        return names;
     }
-    
-    public boolean isGameActive() {
-        return gameActive;
-    }
-    
-    public int getCurrentRound() {
-        return currentRound;
+
+    public static void main(String[] args) {
+        new Server().start(1234);
     }
 }

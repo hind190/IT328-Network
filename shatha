@@ -1,1 +1,81 @@
 
+package server;
+
+import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.List;
+import java.util.ArrayList;
+
+public class WaitingRoom {
+    private static final int MAX_PLAYERS = 4;
+    private CopyOnWriteArrayList<ClientHandler> waitingPlayers = new CopyOnWriteArrayList<>();
+    private Server server;
+
+    // الكونستركتر
+    public WaitingRoom(Server server) {
+        this.server = server;
+    }
+
+    // ****************** PHASE 1 ******************
+    
+    public void addPlayer(ClientHandler player) {
+        if (waitingPlayers.size() >= MAX_PLAYERS) {
+            player.sendMessage("WAITING_FULL:Room is full (max 4 players)");
+            System.out.println("[WaitingRoom] Rejected " + player.getUsername() + " - room full");
+            return;
+        }
+        waitingPlayers.add(player);
+        player.sendMessage("PLAY_OK:Added to waiting room");
+        broadcastWaitingList();
+        System.out.println("[WaitingRoom] " + player.getUsername() + " joined. Total: " + waitingPlayers.size());
+        
+        // إعلام الـ GameLogic بدخول لاعب (للتايمر)
+        if (server != null) {
+            server.getGameLogic().onPlayerJoinedWaitingRoom(waitingPlayers.size());
+            server.getGameLogic().checkAndStartGameIfFull(waitingPlayers.size());
+        }
+    }
+
+    public void removePlayer(ClientHandler player) {
+        waitingPlayers.remove(player);
+        broadcastWaitingList();
+        System.out.println("[WaitingRoom] " + player.getUsername() + " left. Remaining: " + waitingPlayers.size());
+    }
+
+    private void broadcastWaitingList() {
+        StringBuilder sb = new StringBuilder("WAITING_LIST:");
+        for (ClientHandler p : waitingPlayers) {
+            sb.append(p.getUsername()).append(",");
+        }
+        String msg = sb.toString();
+        for (ClientHandler p : waitingPlayers) {
+            p.sendMessage(msg);
+        }
+    }
+    
+    // ****************** PHASE 2 ******************
+    
+    public int getPlayerCount() {
+        return waitingPlayers.size();
+    }
+    
+    public List<ClientHandler> getAllPlayers() {
+        return new ArrayList<>(waitingPlayers);
+    }
+    
+    public void clear() {
+        waitingPlayers.clear();
+        System.out.println("[WaitingRoom] Room cleared");
+    }
+    
+    public int getMaxPlayers() {
+        return MAX_PLAYERS;
+    }
+    
+    public boolean isFull() {
+        return waitingPlayers.size() >= MAX_PLAYERS;
+    }
+    
+    public boolean isEmpty() {
+        return waitingPlayers.isEmpty();
+    }
+}

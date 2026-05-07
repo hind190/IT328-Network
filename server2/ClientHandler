@@ -1,113 +1,113 @@
-package server; 
-
-import java.io.BufferedReader; 
-import java.io.IOException; 
+package server;
+ 
+import java.io.BufferedReader;
+import java.io.IOException;
 import java.io.InputStreamReader;
 import java.io.PrintWriter;
 import java.net.Socket;
-
-public class ClientHandler extends Thread { // استقلل لكل لاعب لان يرث من كلاس ثريد
-    
-    private Socket socket; // الاتصال 
-    private BufferedReader in;// القراءة من رسائل الاعب
-    private PrintWriter out;// ارسال رسائل للاعب
-    private String username; // اسم الاعب
-    private Server server; // عشان استدعي ميثودات السيرفر
-
-    // المُنشئ: يُستدعى من كلاس السيرفر عند قبول اتصال جديد
-    public ClientHandler(Socket socket, Server server) {// يستدعى من كلاس السيرفر 
-        this.socket = socket; // السوكت الخاص  لهذا الاعب
-        this.server = server; // ربط هذا المعالج بالسيرفر الرئيسي
-        
-        try { // قنوات الارسال والاستقبال 
-            // تهيئة BufferedReader لقراءة النصوص من العميل
-            in = new BufferedReader(new InputStreamReader(socket.getInputStream())); // ناخذ الانبوت ستريم من السوكيت نحوله الى النص ثم نغلفه للبفر ريدر لتسهيل القراءة
-            // تهيئة PrintWriter لإرسال النصوص إلى العميل (الـ true تفعيل auto-flush)
-            out = new PrintWriter(socket.getOutputStream(), true);// ناخذ الاوتبوت ستريم  ونجهز النص ثم نرسله من غير انتظار
+ 
+public class ClientHandler extends Thread {
+ 
+    private Socket socket;
+    private BufferedReader in;
+    private PrintWriter out;
+    private String username;
+    private Server server;
+ 
+    public ClientHandler(Socket socket, Server server) {
+        this.socket = socket;
+        this.server = server;
+ 
+        try {
+            in = new BufferedReader(new InputStreamReader(socket.getInputStream()));
+            out = new PrintWriter(socket.getOutputStream(), true);
         } catch (IOException e) {
-            e.printStackTrace(); // طباعة تفاصيل الخطأ في حال فشل إنشاء القنوات
+            e.printStackTrace();
         }
     }
-
-    // دالة لإرجاع اسم المستخدم (يحتاجها السيرفر عند بناء القوائم)
+ 
     public String getUsername() {
         return username;
     }
-    
-    // دالة لإرسال رسالة إلى هذا العميل فقط (تُنادى من السيرفر)
-    public void sendMessage(String message) { // رسالة من السيرفر للعميل نطبعها
-        out.println(message);
+ 
+    public void sendMessage(String message) {
+        if (out != null) {
+            out.println(message);
+        }
     }
-
-    @Override  // تشتغل تلقائي لما اسوي ستارت ثريد في السيرفر
+ 
+    @Override
     public void run() {
         try {
-            // ---------- مرحلة الاتصال (CONNECT) ----------
-            String firstLine = in.readLine(); // السيرفر ينتظر اول رسالة من العميل
-            if (firstLine != null && firstLine.startsWith("CONNECT:")) {// نتاكد ان الرسالة مو نل وتبدا بكونكت
-                this.username = firstLine.substring(8); //استخراج من الرسالة  الاسم بعد كلمة كونكت الي طولها ثمانيه
-                System.out.println("User '" + username + "' connected."); // نطبع الاسم
-                server.addClient(this); // من كلاس السيرفر ارسل له معلومات الاعب الحالي
-                server.broadcastPlayerList();// استعرض  قائمة الاسماء للاعبين الموجودين في الثريدات الاخرى
-                sendMessage("CONNECT_OK:" + username);// رسالة نجاح في اضافة الاعب
-            } else {// اذا ماحقق الشروط
+            String firstLine = in.readLine();
+            if (firstLine != null && firstLine.startsWith("CONNECT:")) {
+                this.username = firstLine.substring(8);
+                System.out.println("User '" + username + "' connected.");
+                server.addClient(this);
+                server.broadcastPlayerList();
+                sendMessage("CONNECT_OK:" + username);
+            } else {
                 System.out.println("Invalid connection attempt, closing.");
-                socket.close(); //يغلق الاتصال
-                return; // إنهاء هذا الخيط فوراً
+                socket.close();
+                return;
             }
-            
-            // ---------- الحلقة الرئيسية لاستقبال باقي الرسائل ----------
-            String message; // متغير لتخزين الرسالة الحالية (لم يكتب عليها تعليق سابق)
-            while ((message = in.readLine()) != null) {// استقبل رسائل من العميل بشكل مستمر اذا نل معناه الاعب فصل
+ 
+            String message;
+            while ((message = in.readLine()) != null) {
                 System.out.println("Received from " + username + ": " + message);
-                
-                // ****************** PHASE 1 ******************
-                if (message.startsWith("PLAY")) { // اذا ضغط بلي الاعب ندخله الويت رون
-                    server.addToWaitingRoom(this); // ماتخلي الاعب يبدا اللعبة مباشرة ينتظر في لويت روم
+ 
+                if (message.startsWith("PLAY")) {
+                    server.addToWaitingRoom(this);
+                    sendMessage("WAITING_JOINED:You have joined the waiting room");
                 }
-                else if (message.startsWith("LEAVE")) { // اذا ضغط ليف 
-                    server.removeFromWaitingRoom(this);// اشيله من غرفة الانتظار
-                    sendMessage("LEFT:You left waiting room");// اظهر تاكيد لخروجه
+                else if (message.startsWith("LEAVE")) {
+                    server.removeFromWaitingRoom(this);
+                    sendMessage("LEFT:You left waiting room");
+                    server.broadcastPlayerList();
                 }
-                // ****************** PHASE 2 - رسائل جديدة ******************
                 else if (message.startsWith("ANSWER:")) {
-                    // صيغة الرسالة: ANSWER:رقم_الروند:نص_الإجابة
-                    String[] parts = message.split(":", 3); // تقسيم الرسالة إلى 3 أجزاء كحد أقصى (لم يكتب عليها تعليق)
-                    if (parts.length >= 3) { // التأكد من وجود رقم الروند ونص الإجابة
+                    String[] parts = message.split(":", 3);
+                    if (parts.length >= 3) {
                         try {
-                            int round = Integer.parseInt(parts[1]); // استخراج رقم الجولة
-                            String answer = parts[2]; // استخراج نص الإجابة
-                            server.receiveAnswer(this, answer, round); // تمرير الإجابة للسيرفر (منطق اللعبة)
+                            int round = Integer.parseInt(parts[1]);
+                            String answer = parts[2];
+                            server.receiveAnswer(this, answer, round);
                         } catch (NumberFormatException e) {
-                            sendMessage("ERROR:Invalid round number"); // إذا كان رقم الروند غير صحيح
+                            sendMessage("ERROR:Invalid round number");
                         }
                     } else {
                         sendMessage("ERROR:Invalid answer format. Use: ANSWER:round:answer");
                     }
                 }
                 else if (message.startsWith("GAME_START_REQUEST")) {
-                    // طلب بدء اللعبة من غرفة الانتظار (الشخص الثاني)
-                    server.startGame(); // إعلام السيرفر لبدء اللعبة
+                    if (server.getWaitingRoomPlayers().contains(this)) {
+                        server.startGame();
+                    } else {
+                        sendMessage("ERROR:You are not in the waiting room");
+                    }
                 }
-                // ****************** PHASE 1 - ECHO للتأكد من الاتصال ******************
+                else if (message.startsWith("GET_WAITING_ROOM")) {
+                    String waitingList = server.getWaitingRoomPlayers().stream()
+                            .map(ClientHandler::getUsername)
+                            .collect(java.util.stream.Collectors.joining(","));
+                    sendMessage("WAITING_LIST:" + waitingList);
+                }
                 else {
-                    sendMessage("ECHO: " + message); // اتاكد انه لسى متصل وارد له نفس رسالته
+                    sendMessage("ECHO: " + message);
                 }
             }
-            
+ 
         } catch (IOException e) {
-            // يحدث هذا الخطأ عند انقطاع الاتصال فجأة أو حدوث مشكلة في الشبكة
-            System.out.println("Connection lost with client: " + username);// عند انقطاع الشبكة
-        } finally {// لو الاتصال نجح ثم فصل
-            if (username != null) { // اذا سجل وكان متصل
-                // ****************** PHASE 2 - معالجة المغادرة بشكل كامل ******************
-                server.handlePlayerLeave(this); // نعرف السيرفر أن اللاعب غادر (لإزالته من غرفة الانتظار/اللعبة)
-                server.removeClient(this); // نشيله من اللست (قائمة المتصلين)
-                server.broadcastPlayerList();// نحدث ونرسل للباقي التحديث
-                System.out.println("User '" + username + "' removed from list."); // نطبع الرسايل للاعبين
+            System.out.println("Connection lost with client: " + username);
+        } finally {
+            if (username != null) {
+                server.handlePlayerLeave(this);
+                server.removeClient(this);
+                server.broadcastPlayerList();
+                System.out.println("User '" + username + "' removed from list.");
             }
-            // إغلاق جميع الموارد (القارئ، الكاتب، السوكيت) لمنع تسرب الذاكرة
-            try { // ننهي الاتصال وننظفه
+ 
+            try {
                 if (in != null) in.close();
                 if (out != null) out.close();
                 if (socket != null) socket.close();

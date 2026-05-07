@@ -1,396 +1,119 @@
-package server;
+package server; 
 
-import java.io.IOException;
-import java.net.ServerSocket;
+import java.io.BufferedReader; 
+import java.io.IOException; 
+import java.io.InputStreamReader;
+import java.io.PrintWriter;
 import java.net.Socket;
-import java.util.ArrayList;
-import java.util.List;
 
-public class Server {
+public class ClientHandler extends Thread { // استقلل لكل لاعب لان يرث من كلاس ثريد
+    
+    private Socket socket; // الاتصال 
+    private BufferedReader in;// القراءة من رسائل الاعب
+    private PrintWriter out;// ارسال رسائل للاعب
+    private String username; // اسم الاعب
+    private Server server; // عشان استدعي ميثودات السيرفر
 
-    private ServerSocket serverSocket;
-
-    private List<ClientHandler> clients =
-            new ArrayList<>();
-
-    private WaitingRoom waitingRoom;
-
-    private boolean running = true;
-
-    private GameLogic gameLogic;
-
-    // ====================== PHASE 2 ======================
-
-    private List<ClientHandler> gamePlayers =
-            new ArrayList<>();
-
-    private int currentRound = 0;
-
-    private boolean gameActive = false;
-
-    private final int TOTAL_ROUNDS = 5;
-
-    // ====================== CONSTRUCTOR ======================
-
-    public Server() {
-
-        this.gameLogic =
-                new GameLogic(this);
-
-        this.waitingRoom =
-                new WaitingRoom(this);
-    }
-
-    // ====================== START SERVER ======================
-
-    public void start(int port) {
-
-        try {
-
-            serverSocket =
-                    new ServerSocket(port);
-
-            System.out.println(
-                    "Server is running on port "
-                            + port
-            );
-
-            while (running) {
-
-                Socket socket =
-                        serverSocket.accept();
-
-                System.out.println(
-                        "New client connected: "
-                                + socket.getInetAddress()
-                );
-
-                ClientHandler clientHandler =
-                        new ClientHandler(socket, this);
-
-                clientHandler.start();
-            }
-
+    // المُنشئ: يُستدعى من كلاس السيرفر عند قبول اتصال جديد
+    public ClientHandler(Socket socket, Server server) {// يستدعى من كلاس السيرفر 
+        this.socket = socket; // السوكت الخاص  لهذا الاعب
+        this.server = server; // ربط هذا المعالج بالسيرفر الرئيسي
+        
+        try { // قنوات الارسال والاستقبال 
+            // تهيئة BufferedReader لقراءة النصوص من العميل
+            in = new BufferedReader(new InputStreamReader(socket.getInputStream())); // ناخذ الانبوت ستريم من السوكيت نحوله الى النص ثم نغلفه للبفر ريدر لتسهيل القراءة
+            // تهيئة PrintWriter لإرسال النصوص إلى العميل (الـ true تفعيل auto-flush)
+            out = new PrintWriter(socket.getOutputStream(), true);// ناخذ الاوتبوت ستريم  ونجهز النص ثم نرسله من غير انتظار
         } catch (IOException e) {
-
-            e.printStackTrace();
+            e.printStackTrace(); // طباعة تفاصيل الخطأ في حال فشل إنشاء القنوات
         }
     }
 
-    // ====================== GETTERS ======================
-
-    public GameLogic getGameLogic() {
-
-        return gameLogic;
+    // دالة لإرجاع اسم المستخدم (يحتاجها السيرفر عند بناء القوائم)
+    public String getUsername() {
+        return username;
+    }
+    
+    // دالة لإرسال رسالة إلى هذا العميل فقط (تُنادى من السيرفر)
+    public void sendMessage(String message) { // رسالة من السيرفر للعميل نطبعها
+        out.println(message);
     }
 
-    public synchronized List<ClientHandler> getClients() {
-
-        return clients;
-    }
-
-    public List<ClientHandler> getGamePlayers() {
-
-        return gamePlayers;
-    }
-
-    public int getWaitingRoomSize() {
-
-        return waitingRoom.getPlayerCount();
-    }
-
-    // ====================== CLIENTS ======================
-
-    public synchronized void addClient(
-            ClientHandler client
-    ) {
-
-        clients.add(client);
-    }
-
-    public synchronized void removeClient(
-            ClientHandler client
-    ) {
-
-        clients.remove(client);
-
-        waitingRoom.removePlayer(client);
-    }
-
-    // ====================== PLAYER LIST ======================
-
-    public synchronized void broadcastPlayerList() {
-
-        if (clients.isEmpty()) return;
-
-        StringBuilder sb =
-                new StringBuilder("PLAYER_LIST:");
-
-        for (int i = 0; i < clients.size(); i++) {
-
-            if (i > 0) sb.append(",");
-
-            sb.append(
-                    clients.get(i).getUsername()
-            );
-        }
-
-        String msg = sb.toString();
-
-        for (ClientHandler c : clients) {
-
-            c.sendMessage(msg);
-        }
-    }
-
-    // ====================== WAITING ROOM ======================
-
-    public void addToWaitingRoom(
-            ClientHandler handler
-    ) {
-
-        waitingRoom.addPlayer(handler);
-
-        gameLogic.onPlayerJoinedWaitingRoom(
-                waitingRoom.getPlayerCount()
-        );
-
-        gameLogic.checkAndStartGameIfFull(
-                waitingRoom.getPlayerCount()
-        );
-    }
-
-    public void removeFromWaitingRoom(
-            ClientHandler handler
-    ) {
-
-        waitingRoom.removePlayer(handler);
-    }
-
-    // ====================== START GAME ======================
-
-    public synchronized void startGame() {
-
-        if (gameActive) {
-            return;
-        }
-
-        if (waitingRoom.getPlayerCount() < 2) {
-
-            broadcastToAll(
-                    "ERROR:Not enough players"
-            );
-
-            return;
-        }
-
-        System.out.println("GAME STARTED");
-
-        gameActive = true;
-
-        currentRound = 0;
-
-        gamePlayers.clear();
-
-        gamePlayers.addAll(
-                waitingRoom.getAllPlayers()
-        );
-
-        waitingRoom.clear();
-
-        // مهم جدًا
-        gameLogic.onGameStart();
-
-        // إرسال بداية اللعبة
-        broadcastToGamePlayers(
-                "GAME_START"
-        );
-
-        // بدء أول جولة
-        nextRound();
-    }
-
-    // ====================== NEXT ROUND ======================
-
-    public void nextRound() {
-
-        if (!gameActive) return;
-
-        currentRound++;
-
-        System.out.println("ROUND SENT");
-
-        if (currentRound > TOTAL_ROUNDS) {
-
-            endGame(null);
-
-            return;
-        }
-
-        String roundMsg =
-                "ROUND:"
-                        + currentRound
-                        + "/"
-                        + TOTAL_ROUNDS;
-
-        broadcastToGamePlayers(roundMsg);
-
-        gameLogic.startRound(
-                currentRound,
-                gamePlayers.size()
-        );
-    }
-
-    // ====================== END GAME ======================
-
-    public synchronized void endGame(
-            String winnerName
-    ) {
-
-        if (!gameActive) return;
-
-        gameActive = false;
-
-        String endMsg;
-
-        if (winnerName != null
-                && !winnerName.isEmpty()) {
-
-            endMsg =
-                    "GAME_END:"
-                            + winnerName;
-
-            System.out.println(
-                    "Winner: "
-                            + winnerName
-            );
-
-        } else {
-
-            endMsg =
-                    "GAME_END:NO_WINNER";
-
-            System.out.println(
-                    "No winner"
-            );
-        }
-
-        broadcastToAll(endMsg);
-
-        gamePlayers.clear();
-    }
-
-    // ====================== BROADCAST ======================
-
-    public void broadcastToAll(
-            String message
-    ) {
-
-        for (ClientHandler c : clients) {
-
-            c.sendMessage(message);
-        }
-    }
-
-    public void broadcastToGamePlayers(
-            String message
-    ) {
-
-        for (ClientHandler c : gamePlayers) {
-
-            c.sendMessage(message);
-        }
-    }
-
-    // ====================== SCORES ======================
-
-    public void broadcastScores(
-            String scoresData
-    ) {
-
-        broadcastToAll(
-                "SCORE:" + scoresData
-        );
-    }
-
-    // ====================== PLAYER LEAVE ======================
-
-    public synchronized void handlePlayerLeave(
-            ClientHandler player
-    ) {
-
-        String username =
-                player.getUsername();
-
-        System.out.println(
-                "Player left: "
-                        + username
-        );
-
-        gamePlayers.remove(player);
-
-        waitingRoom.removePlayer(player);
-
-        broadcastToAll(
-                "PLAYER_LEFT:" + username
-        );
-
-        if (gameActive) {
-
-            if (gamePlayers.size() == 1) {
-
-                endGame(
-                        gamePlayers
-                                .get(0)
-                                .getUsername()
-                );
-
-            } else if (gamePlayers.isEmpty()) {
-
-                endGame(null);
+    @Override  // تشتغل تلقائي لما اسوي ستارت ثريد في السيرفر
+    public void run() {
+        try {
+            // ---------- مرحلة الاتصال (CONNECT) ----------
+            String firstLine = in.readLine(); // السيرفر ينتظر اول رسالة من العميل
+            if (firstLine != null && firstLine.startsWith("CONNECT:")) {// نتاكد ان الرسالة مو نل وتبدا بكونكت
+                this.username = firstLine.substring(8); //استخراج من الرسالة  الاسم بعد كلمة كونكت الي طولها ثمانيه
+                System.out.println("User '" + username + "' connected."); // نطبع الاسم
+                server.addClient(this); // من كلاس السيرفر ارسل له معلومات الاعب الحالي
+                server.broadcastPlayerList();// استعرض  قائمة الاسماء للاعبين الموجودين في الثريدات الاخرى
+                sendMessage("CONNECT_OK:" + username);// رسالة نجاح في اضافة الاعب
+            } else {// اذا ماحقق الشروط
+                System.out.println("Invalid connection attempt, closing.");
+                socket.close(); //يغلق الاتصال
+                return; // إنهاء هذا الخيط فوراً
+            }
+            
+            // ---------- الحلقة الرئيسية لاستقبال باقي الرسائل ----------
+            String message; // متغير لتخزين الرسالة الحالية (لم يكتب عليها تعليق سابق)
+            while ((message = in.readLine()) != null) {// استقبل رسائل من العميل بشكل مستمر اذا نل معناه الاعب فصل
+                System.out.println("Received from " + username + ": " + message);
+                
+                // ****************** PHASE 1 ******************
+                if (message.startsWith("PLAY")) { // اذا ضغط بلي الاعب ندخله الويت رون
+                    server.addToWaitingRoom(this); // ماتخلي الاعب يبدا اللعبة مباشرة ينتظر في لويت روم
+                }
+                else if (message.startsWith("LEAVE")) { // اذا ضغط ليف 
+                    server.removeFromWaitingRoom(this);// اشيله من غرفة الانتظار
+                    sendMessage("LEFT:You left waiting room");// اظهر تاكيد لخروجه
+                }
+                // ****************** PHASE 2 - رسائل جديدة ******************
+                else if (message.startsWith("ANSWER:")) {
+                    // صيغة الرسالة: ANSWER:رقم_الروند:نص_الإجابة
+                    String[] parts = message.split(":", 3); // تقسيم الرسالة إلى 3 أجزاء كحد أقصى (لم يكتب عليها تعليق)
+                    if (parts.length >= 3) { // التأكد من وجود رقم الروند ونص الإجابة
+                        try {
+                            int round = Integer.parseInt(parts[1]); // استخراج رقم الجولة
+                            String answer = parts[2]; // استخراج نص الإجابة
+                            server.receiveAnswer(this, answer, round); // تمرير الإجابة للسيرفر (منطق اللعبة)
+                        } catch (NumberFormatException e) {
+                            sendMessage("ERROR:Invalid round number"); // إذا كان رقم الروند غير صحيح
+                        }
+                    } else {
+                        sendMessage("ERROR:Invalid answer format. Use: ANSWER:round:answer");
+                    }
+                }
+                else if (message.startsWith("GAME_START_REQUEST")) {
+                    // طلب بدء اللعبة من غرفة الانتظار (الشخص الثاني)
+                    server.startGame(); // إعلام السيرفر لبدء اللعبة
+                }
+                // ****************** PHASE 1 - ECHO للتأكد من الاتصال ******************
+                else {
+                    sendMessage("ECHO: " + message); // اتاكد انه لسى متصل وارد له نفس رسالته
+                }
+            }
+            
+        } catch (IOException e) {
+            // يحدث هذا الخطأ عند انقطاع الاتصال فجأة أو حدوث مشكلة في الشبكة
+            System.out.println("Connection lost with client: " + username);// عند انقطاع الشبكة
+        } finally {// لو الاتصال نجح ثم فصل
+            if (username != null) { // اذا سجل وكان متصل
+                // ****************** PHASE 2 - معالجة المغادرة بشكل كامل ******************
+                server.handlePlayerLeave(this); // نعرف السيرفر أن اللاعب غادر (لإزالته من غرفة الانتظار/اللعبة)
+                server.removeClient(this); // نشيله من اللست (قائمة المتصلين)
+                server.broadcastPlayerList();// نحدث ونرسل للباقي التحديث
+                System.out.println("User '" + username + "' removed from list."); // نطبع الرسايل للاعبين
+            }
+            // إغلاق جميع الموارد (القارئ، الكاتب، السوكيت) لمنع تسرب الذاكرة
+            try { // ننهي الاتصال وننظفه
+                if (in != null) in.close();
+                if (out != null) out.close();
+                if (socket != null) socket.close();
+            } catch (IOException e) {
+                e.printStackTrace();
             }
         }
-    }
-
-    // ====================== ANSWERS ======================
-
-    public void receiveAnswer(
-            ClientHandler player,
-            String answer,
-            int round
-    ) {
-
-        if (!gameActive) {
-
-            player.sendMessage(
-                    "ERROR:Game not active"
-            );
-
-            return;
-        }
-
-        System.out.println(
-                "Answer from "
-                        + player.getUsername()
-                        + ": "
-                        + answer
-        );
-
-        gameLogic.submitAnswer(
-                player.getUsername(),
-                answer
-        );
-
-        player.sendMessage(
-                "ANSWER_RECEIVED:Round "
-                        + round
-        );
-    }
-
-    // ====================== MAIN ======================
-
-    public static void main(String[] args) {
-
-        new Server().start(1234);
     }
 }

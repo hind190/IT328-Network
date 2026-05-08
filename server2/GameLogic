@@ -8,10 +8,11 @@ public class GameLogic {
 
     private Server server;
     private Map<String, Integer> scores = new ConcurrentHashMap<>();
-    private Set<String> correctAnsweredPlayers = new HashSet<>();
+    private Set<String> answeredPlayers = new HashSet<>();
     private String correctAnswer;
     private int currentRound;
     private int totalPlayers;
+    private int answeredCount;
     private boolean roundActive;
     private boolean correctAnswerGiven;
     private Timer waitingTimer;
@@ -86,7 +87,10 @@ public class GameLogic {
     public void startGameTimer() {
         cancelGameTimer();
         System.out.println("Game timer started: 5 minutes");
-        server.broadcastToAll("GAME_TIMER:" + (GAME_DURATION_MS / 1000));
+        
+        int totalSeconds = GAME_DURATION_MS / 1000;
+        System.out.println(">>> Sending GAME_TIMER:" + totalSeconds);
+        server.broadcastToAll("GAME_TIMER:" + totalSeconds);
 
         gameTimer = new Timer();
         gameTimer.schedule(new TimerTask() {
@@ -108,9 +112,10 @@ public class GameLogic {
     public void startRound(int round, int totalPlayers) {
         this.currentRound = round;
         this.totalPlayers = totalPlayers;
+        this.answeredCount = 0;
         this.roundActive = true;
         this.correctAnswerGiven = false;
-        this.correctAnsweredPlayers.clear();
+        this.answeredPlayers.clear();
 
         Question q = questions.get(round);
         if (q != null) {
@@ -127,30 +132,35 @@ public class GameLogic {
             return;
         }
 
-        if (correctAnsweredPlayers.contains(username)) {
-            server.broadcastToGamePlayers("ALREADY_CORRECT:" + username);
+        if (answeredPlayers.contains(username)) {
+            server.broadcastToGamePlayers("ALREADY_ANSWERED:" + username);
             return;
         }
 
         scores.putIfAbsent(username, 0);
+        answeredPlayers.add(username);
+        answeredCount++;
 
         if (answer.equalsIgnoreCase(correctAnswer)) {
             scores.put(username, scores.get(username) + 1);
-            correctAnsweredPlayers.add(username);
             correctAnswerGiven = true;
             
             server.broadcastToGamePlayers("CORRECT:" + username);
             sendScores();
             
             roundActive = false;
-            server.broadcastToGamePlayers("ROUND_END:" + username + " answered correctly! Moving to next round...");
+            server.broadcastToGamePlayers("ROUND_END:" + username);
             server.nextRound();
             
         } else {
-            // ✅ إجابة خاطئة - اللاعب يقدر يجاوب مرة ثانية
             server.broadcastToGamePlayers("WRONG:" + username);
             sendScores();
-            // لا نضيفه إلى أي Set تمنعه من المحاولة مرة أخرى
+            
+            if (answeredCount >= totalPlayers && !correctAnswerGiven) {
+                roundActive = false;
+                server.broadcastToGamePlayers("NO_CORRECT:No one answered correctly!");
+                server.nextRound();
+            }
         }
     }
 
@@ -196,7 +206,7 @@ public class GameLogic {
         }
 
         scores.clear();
-        correctAnsweredPlayers.clear();
+        answeredPlayers.clear();
         gameStarted = false;
         waitingPlayersCount = 0;
     }
@@ -205,6 +215,7 @@ public class GameLogic {
         gameStarted = true;
         cancelWaitingTimer();
         startGameTimer();
+        System.out.println(">>> onGameStart called - Game timer should start");
     }
 
     public boolean isGameStarted() {

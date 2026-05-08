@@ -1,629 +1,321 @@
-package client;
+package server;
 
-import javax.swing.*;
-import java.awt.*;
-import java.awt.event.ActionEvent;
-import java.awt.event.ActionListener;
-import java.io.*;
+import java.io.IOException;
+import java.net.ServerSocket;
 import java.net.Socket;
-import java.util.HashSet;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
+import java.util.Timer;
+import java.util.TimerTask;
 
-public class GameClient extends JFrame {
+public class Server {
 
-    private JFrame startFrame;
-    private Socket socket;
-    private PrintWriter out;
-    private BufferedReader in;
-    private String username;
+    private ServerSocket serverSocket;
+    private List<ClientHandler> clients = new ArrayList<>();
+    private WaitingRoom waitingRoom;
+    private boolean running = true;
+    private GameLogic gameLogic;
 
-    private JTextField usernameField;
-    private JButton connectBtn;
-    private JButton playBtn;
-    private JButton leaveBtn;
-    private JTextArea chatArea;
-    private DefaultListModel<String> connectedListModel;
-    private JList<String> connectedList;
-    private DefaultListModel<String> waitingListModel;
-    private JList<String> waitingList;
-
-    private boolean connected = false;
-    private boolean listenerStarted = false;
-
-    // ====================== GAME (شاشة منفصلة) ======================
-    private JFrame gameFrame;
-    private JLabel roundLabel;
-    private JLabel imageLabel;
-    private JLabel scoreLabel;
-    private JLabel timerLabel;
-    private JLabel cooldownLabel;
-    private JTextField answerField;
-    private JButton submitBtn;
+    private List<ClientHandler> gamePlayers = Collections.synchronizedList(new ArrayList<>());
     private int currentRound = 0;
-    private Timer countdownTimer;
-    private int timeLeft = 0;
-    private Timer cooldownTimer;
-    private int cooldownTimeLeft = 0;
-    
-    private final String IMAGE_PATH = "src/main/java/Client/image/";
+    private boolean gameActive = false;
+    private final int TOTAL_ROUNDS = 5;
+    private final int MAX_PLAYERS = 4;
+    private Timer gameStartTimer;
+    private boolean waitingForPlayers = false;
 
-    public GameClient() {
-        createStartScreen();
+    public Server() {
+        this.gameLogic = new GameLogic(this);
+        this.waitingRoom = new WaitingRoom(this);
     }
 
-    private void createStartScreen() {
-        startFrame = new JFrame("Game Start");
-        startFrame.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
-        startFrame.setExtendedState(JFrame.MAXIMIZED_BOTH);
-
-        ImageIcon bg = new ImageIcon(IMAGE_PATH + "background.png");
-        Image img = bg.getImage();
-        Dimension size = Toolkit.getDefaultToolkit().getScreenSize();
-        Image scaled = img.getScaledInstance(size.width, size.height, Image.SCALE_SMOOTH);
-
-        JLabel background = new JLabel(new ImageIcon(scaled));
-        background.setLayout(new GridBagLayout());
-
-        ImageIcon startIcon = new ImageIcon(IMAGE_PATH + "start.png");
-        Image startImg = startIcon.getImage().getScaledInstance(220, 90, Image.SCALE_SMOOTH);
-        JButton startBtn = new JButton(new ImageIcon(startImg));
-
-        startBtn.setBorderPainted(false);
-        startBtn.setContentAreaFilled(false);
-        startBtn.setFocusPainted(false);
-        startBtn.setOpaque(false);
-
-        GridBagConstraints gbc = new GridBagConstraints();
-        gbc.gridx = 0;
-        gbc.gridy = 0;
-        gbc.insets = new Insets(260, 0, 0, 0);
-        background.add(startBtn, gbc);
-
-        startBtn.addActionListener(e -> {
-            startFrame.dispose();
-            initializeMainGUI();
-        });
-
-        startFrame.add(background);
-        startFrame.setVisible(true);
-    }
-
-    private void initializeMainGUI() {
-        setTitle("Multiplayer Game - Waiting Room");
-        setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
-        setSize(1000, 700);
-        setLocationRelativeTo(null);
-
-        JLabel bg = new JLabel(new ImageIcon(IMAGE_PATH + "img2.png"));
-        bg.setLayout(new BorderLayout());
-        setContentPane(bg);
-
-        JPanel top = new JPanel(new FlowLayout());
-        top.setOpaque(false);
-
-        JLabel userLabel = new JLabel("Username:");
-        userLabel.setForeground(Color.WHITE);
-        userLabel.setFont(new Font("Segoe UI", Font.BOLD, 22));
-        top.add(userLabel);
-
-        usernameField = new JTextField();
-        usernameField.setPreferredSize(new Dimension(250, 35));
-        usernameField.setFont(new Font("Segoe UI", Font.PLAIN, 18));
-        top.add(usernameField);
-
-        connectBtn = new JButton("Connect");
-        top.add(connectBtn);
-        add(top, BorderLayout.NORTH);
-
-        JPanel center = new JPanel(new GridBagLayout());
-        center.setOpaque(false);
-        GridBagConstraints gbc = new GridBagConstraints();
-        gbc.insets = new Insets(20, 40, 20, 40);
-
-        Color beige = new Color(230, 210, 170);
-
-        connectedListModel = new DefaultListModel<>();
-        connectedList = new JList<>(connectedListModel);
-        connectedList.setBackground(beige);
-        connectedList.setFont(new Font("Segoe UI", Font.PLAIN, 18));
-        connectedList.setBorder(BorderFactory.createTitledBorder("Connected Players"));
-        JScrollPane scroll1 = new JScrollPane(connectedList);
-        scroll1.setPreferredSize(new Dimension(400, 250));
-
-        waitingListModel = new DefaultListModel<>();
-        waitingList = new JList<>(waitingListModel);
-        waitingList.setBackground(beige);
-        waitingList.setFont(new Font("Segoe UI", Font.PLAIN, 18));
-        waitingList.setBorder(BorderFactory.createTitledBorder("Waiting Room"));
-        JScrollPane scroll2 = new JScrollPane(waitingList);
-        scroll2.setPreferredSize(new Dimension(400, 250));
-
-        gbc.gridx = 0; gbc.gridy = 0;
-        center.add(scroll1, gbc);
-        gbc.gridx = 1;
-        center.add(scroll2, gbc);
-        add(center, BorderLayout.CENTER);
-
-        JPanel bottom = new JPanel(new BorderLayout());
-        bottom.setOpaque(false);
-
-        JPanel btnPanel = new JPanel(new FlowLayout());
-        btnPanel.setOpaque(false);
-
-        playBtn = new JButton("Play");
-        leaveBtn = new JButton("Leave");
-        playBtn.setEnabled(false);
-        leaveBtn.setEnabled(false);
-        btnPanel.add(playBtn);
-        btnPanel.add(leaveBtn);
-        bottom.add(btnPanel, BorderLayout.NORTH);
-
-        chatArea = new JTextArea(8, 40);
-        chatArea.setEditable(false);
-        bottom.add(new JScrollPane(chatArea), BorderLayout.CENTER);
-        add(bottom, BorderLayout.SOUTH);
-
-        connectBtn.addActionListener(e -> connectToServer());
-        playBtn.addActionListener(e -> sendPlay());
-        leaveBtn.addActionListener(e -> sendLeave());
-
-        setVisible(true);
-    }
-
-    // ====================== شاشة اللعبة المنفصلة ======================
-    private void createGameFrame() {
-        gameFrame = new JFrame("Multiplayer Game - Playing");
-        gameFrame.setDefaultCloseOperation(JFrame.DISPOSE_ON_CLOSE);
-        gameFrame.setExtendedState(JFrame.MAXIMIZED_BOTH);
-        
-        JPanel mainPanel = new JPanel(new BorderLayout());
-        mainPanel.setBackground(Color.BLACK);
-        
-        // اللوحة العلوية للمعلومات
-        JPanel topPanel = new JPanel();
-        topPanel.setOpaque(false);
-        topPanel.setLayout(new BoxLayout(topPanel, BoxLayout.Y_AXIS));
-        
-        timerLabel = new JLabel("⏱ 5:00");
-        timerLabel.setForeground(Color.YELLOW);
-        timerLabel.setFont(new Font("Segoe UI", Font.BOLD, 48));
-        timerLabel.setAlignmentX(Component.CENTER_ALIGNMENT);
-        
-        roundLabel = new JLabel("الجولة: 0/5");
-        roundLabel.setForeground(Color.WHITE);
-        roundLabel.setFont(new Font("Segoe UI", Font.BOLD, 36));
-        roundLabel.setAlignmentX(Component.CENTER_ALIGNMENT);
-        
-        cooldownLabel = new JLabel("");
-        cooldownLabel.setForeground(Color.RED);
-        cooldownLabel.setFont(new Font("Segoe UI", Font.BOLD, 28));
-        cooldownLabel.setAlignmentX(Component.CENTER_ALIGNMENT);
-        
-        topPanel.add(Box.createVerticalStrut(20));
-        topPanel.add(timerLabel);
-        topPanel.add(Box.createVerticalStrut(10));
-        topPanel.add(roundLabel);
-        topPanel.add(Box.createVerticalStrut(10));
-        topPanel.add(cooldownLabel);
-        
-        // الصورة
-        imageLabel = new JLabel();
-        imageLabel.setHorizontalAlignment(SwingConstants.CENTER);
-        
-        // النتائج
-        scoreLabel = new JLabel("النتائج:");
-        scoreLabel.setForeground(Color.YELLOW);
-        scoreLabel.setFont(new Font("Segoe UI", Font.BOLD, 24));
-        scoreLabel.setHorizontalAlignment(SwingConstants.CENTER);
-        
-        JPanel centerPanel = new JPanel();
-        centerPanel.setOpaque(false);
-        centerPanel.setLayout(new BoxLayout(centerPanel, BoxLayout.Y_AXIS));
-        centerPanel.add(imageLabel);
-        centerPanel.add(Box.createVerticalStrut(20));
-        centerPanel.add(scoreLabel);
-        
-        // اللوحة السفلية للإجابة
-        JPanel bottomPanel = new JPanel();
-        bottomPanel.setOpaque(false);
-        bottomPanel.setLayout(new BoxLayout(bottomPanel, BoxLayout.Y_AXIS));
-        
-        answerField = new JTextField();
-        answerField.setMaximumSize(new Dimension(400, 60));
-        answerField.setPreferredSize(new Dimension(400, 60));
-        answerField.setFont(new Font("Segoe UI", Font.PLAIN, 28));
-        answerField.setHorizontalAlignment(JTextField.CENTER);
-        answerField.addActionListener(e -> sendAnswer());
-        
-        submitBtn = new JButton("إرسال الإجابة");
-        submitBtn.setFont(new Font("Segoe UI", Font.BOLD, 26));
-        submitBtn.setPreferredSize(new Dimension(250, 60));
-        submitBtn.setMaximumSize(new Dimension(250, 60));
-        submitBtn.addActionListener(e -> sendAnswer());
-        
-        bottomPanel.add(Box.createVerticalGlue());
-        bottomPanel.add(answerField);
-        bottomPanel.add(Box.createVerticalStrut(15));
-        bottomPanel.add(submitBtn);
-        bottomPanel.add(Box.createVerticalStrut(50));
-        
-        mainPanel.add(topPanel, BorderLayout.NORTH);
-        mainPanel.add(centerPanel, BorderLayout.CENTER);
-        mainPanel.add(bottomPanel, BorderLayout.SOUTH);
-        
-        gameFrame.add(mainPanel);
-    }
-    
-    private void setLevelImage(String path) {
+    public void start(int port) {
         try {
-            ImageIcon icon = new ImageIcon(IMAGE_PATH + path);
-            Image img = icon.getImage();
-            Dimension screenSize = Toolkit.getDefaultToolkit().getScreenSize();
-            int imgWidth = (int)(screenSize.width * 0.6);
-            int imgHeight = (int)(screenSize.height * 0.4);
-            Image scaledImg = img.getScaledInstance(imgWidth, imgHeight, Image.SCALE_SMOOTH);
-            imageLabel.setIcon(new ImageIcon(scaledImg));
-        } catch (Exception e) {
-            System.out.println("Error loading image: " + path);
-        }
-    }
-    
-    private void showGameFrame() {
-        if (gameFrame == null) {
-            createGameFrame();
-        }
-        gameFrame.setVisible(true);
-    }
-    
-    private void hideGameFrame() {
-        if (gameFrame != null) {
-            gameFrame.setVisible(false);
-        }
-    }
+            serverSocket = new ServerSocket(port);
+            System.out.println("Server is running on port " + port);
 
-    private void connectToServer() {
-        if (connected) return;
-
-        String name = usernameField.getText().trim();
-        if (name.isEmpty()) {
-            JOptionPane.showMessageDialog(this, "Enter username");
-            return;
-        }
-
-        try {
-            socket = new Socket("localhost", 1234);
-            out = new PrintWriter(socket.getOutputStream(), true);
-            in = new BufferedReader(new InputStreamReader(socket.getInputStream()));
-
-            username = name;
-            out.println("CONNECT:" + username);
-            connected = true;
-            startListener();
-
-            connectBtn.setEnabled(false);
-            usernameField.setEnabled(false);
-            playBtn.setEnabled(true);
-            leaveBtn.setEnabled(true);
-
-            JOptionPane.showMessageDialog(this, "Connected Successfully 🎉");
-
+            while (running) {
+                Socket socket = serverSocket.accept();
+                System.out.println("New client connected: " + socket.getInetAddress());
+                ClientHandler clientHandler = new ClientHandler(socket, this);
+                clientHandler.start();
+            }
         } catch (IOException e) {
-            JOptionPane.showMessageDialog(this, "Cannot connect to server! Make sure the server is running.");
+            e.printStackTrace();
         }
     }
 
-    private void startListener() {
-        if (listenerStarted) return;
-        listenerStarted = true;
-
-        new Thread(() -> {
-            try {
-                String msg;
-                while ((msg = in.readLine()) != null) {
-                    String finalMsg = msg;
-                    SwingUtilities.invokeLater(() -> processMessage(finalMsg));
-                }
-            } catch (IOException e) {
-                SwingUtilities.invokeLater(() -> appendMessage("Connection lost"));
-            }
-        }).start();
+    public GameLogic getGameLogic() {
+        return gameLogic;
     }
 
-    private void startCooldown() {
-        stopCooldown();
-        cooldownTimeLeft = 30;
-        updateCooldownLabel();
+    public synchronized List<ClientHandler> getClients() {
+        return clients;
+    }
+
+    public List<ClientHandler> getGamePlayers() {
+        return gamePlayers;
+    }
+
+    public int getWaitingRoomSize() {
+        return waitingRoom.getPlayerCount();
+    }
+
+    public List<ClientHandler> getWaitingRoomPlayers() {
+        return waitingRoom.getAllPlayers();
+    }
+
+    public synchronized void addClient(ClientHandler client) {
+        clients.add(client);
+    }
+
+    public synchronized void removeClient(ClientHandler client) {
+        clients.remove(client);
+        waitingRoom.removePlayer(client);
+        gamePlayers.remove(client);
+    }
+
+    public synchronized void broadcastPlayerList() {
+        if (clients.isEmpty()) return;
+
+        StringBuilder sb = new StringBuilder("PLAYER_LIST:");
+        for (int i = 0; i < clients.size(); i++) {
+            if (i > 0) sb.append(",");
+            sb.append(clients.get(i).getUsername());
+        }
+        String msg = sb.toString();
+
+        for (ClientHandler c : clients) {
+            c.sendMessage(msg);
+        }
+    }
+
+    public void addToWaitingRoom(ClientHandler handler) {
+        waitingRoom.addPlayer(handler);
+        broadcastWaitingRoomPlayers();
+        checkAndStartGameCountdown();
+    }
+
+    public void removeFromWaitingRoom(ClientHandler handler) {
+        waitingRoom.removePlayer(handler);
+        broadcastWaitingRoomPlayers();
         
-        cooldownTimer = new Timer(1000, e -> {
-            cooldownTimeLeft--;
-            updateCooldownLabel();
-            
-            if (cooldownTimeLeft <= 0) {
-                stopCooldown();
-                answerField.setEnabled(true);
-                submitBtn.setEnabled(true);
-                cooldownLabel.setText("");
-                appendMessage("✅ يمكنك الإجابة الآن!");
-            }
-        });
-        cooldownTimer.start();
+        if (waitingForPlayers && waitingRoom.getPlayerCount() < 2) {
+            cancelGameStartTimer();
+        }
     }
     
-    private void stopCooldown() {
-        if (cooldownTimer != null) {
-            cooldownTimer.stop();
-            cooldownTimer = null;
+    private void broadcastWaitingRoomPlayers() {
+        List<ClientHandler> waitingPlayers = waitingRoom.getAllPlayers();
+        StringBuilder sb = new StringBuilder("WAITING_LIST:");
+        for (int i = 0; i < waitingPlayers.size(); i++) {
+            if (i > 0) sb.append(",");
+            sb.append(waitingPlayers.get(i).getUsername());
+        }
+        String msg = sb.toString();
+        
+        for (ClientHandler player : waitingPlayers) {
+            player.sendMessage(msg);
+        }
+        for (ClientHandler c : clients) {
+            c.sendMessage(msg);
         }
     }
     
-    private void updateCooldownLabel() {
-        cooldownLabel.setText("⏳ انتظر " + cooldownTimeLeft + " ثانية قبل الإجابة مرة أخرى...");
-    }
-
-    // ✅ التايمر المعدل الذي يعمل بشكل صحيح
-    private void startCountdown(int seconds) {
-        // إيقاف التايمر القديم إذا كان موجود
-        if (countdownTimer != null) {
-            countdownTimer.stop();
-            countdownTimer = null;
+    private void checkAndStartGameCountdown() {
+        int playerCount = waitingRoom.getPlayerCount();
+        
+        if (playerCount == MAX_PLAYERS && !gameActive) {
+            System.out.println("4 players reached! Starting game immediately...");
+            if (gameStartTimer != null) {
+                gameStartTimer.cancel();
+                gameStartTimer = null;
+            }
+            waitingForPlayers = false;
+            startGame();
+            return;
         }
         
-        timeLeft = seconds;
-        updateTimerDisplay();
-        System.out.println("Timer started with " + seconds + " seconds"); // للتحقق
+        if (playerCount >= 2 && !gameActive && !waitingForPlayers && playerCount < MAX_PLAYERS) {
+            startGameCountdown();
+        }
+    }
+    
+    private void startGameCountdown() {
+        waitingForPlayers = true;
         
-        countdownTimer = new Timer(1000, new ActionListener() {
+        String countdownMsg = "COUNTDOWN:30 seconds until game starts. Waiting for " + 
+                              (MAX_PLAYERS - waitingRoom.getPlayerCount()) + " more player(s)...";
+        for (ClientHandler player : waitingRoom.getAllPlayers()) {
+            player.sendMessage(countdownMsg);
+        }
+        
+        gameStartTimer = new Timer();
+        gameStartTimer.schedule(new TimerTask() {
             @Override
-            public void actionPerformed(ActionEvent e) {
-                if (timeLeft > 0) {
-                    timeLeft--;
-                    updateTimerDisplay();
-                    System.out.println("Timer: " + timeLeft + " seconds left"); // للتحقق
-                    
-                    if (timeLeft == 30) {
-                        timerLabel.setForeground(Color.RED);
-                        appendMessage("⚠️ تبقت 30 ثانية!");
-                    }
-                    
-                    if (timeLeft <= 0) {
-                        countdownTimer.stop();
-                        appendMessage("⏱ انتهى وقت اللعبة!");
-                    }
-                } else {
-                    countdownTimer.stop();
+            public void run() {
+                if (waitingForPlayers && !gameActive && waitingRoom.getPlayerCount() >= 2) {
+                    startGame();
                 }
+                waitingForPlayers = false;
             }
-        });
-        countdownTimer.setInitialDelay(0);
-        countdownTimer.start();
+        }, 30000);
     }
     
-    private void updateTimerDisplay() {
-        int mins = timeLeft / 60;
-        int secs = timeLeft % 60;
-        timerLabel.setText(String.format("⏱ %d:%02d", mins, secs));
+    private void cancelGameStartTimer() {
+        if (gameStartTimer != null) {
+            gameStartTimer.cancel();
+            gameStartTimer = null;
+        }
+        waitingForPlayers = false;
+        
+        String cancelMsg = "COUNTDOWN_CANCELLED:Not enough players. Waiting for more players...";
+        for (ClientHandler player : waitingRoom.getAllPlayers()) {
+            player.sendMessage(cancelMsg);
+        }
+    }
+
+    public synchronized void startGame() {
+        if (gameActive) return;
+
+        if (waitingRoom.getPlayerCount() < 2) {
+            broadcastToAll("ERROR:Not enough players");
+            return;
+        }
+        
+        if (gameStartTimer != null) {
+            gameStartTimer.cancel();
+            gameStartTimer = null;
+        }
+        waitingForPlayers = false;
+
+        System.out.println("GAME STARTED with " + waitingRoom.getPlayerCount() + " players");
+        gameActive = true;
+        currentRound = 0;
+        
+        gamePlayers.clear();
+        gamePlayers.addAll(waitingRoom.getAllPlayers());
+        waitingRoom.clear();
+
+        gameLogic.onGameStart();
+        broadcastToGamePlayers("GAME_START");
+        
+        nextRound();
+    }
+
+    public synchronized void nextRound() {
+        if (!gameActive) return;
+
+        currentRound++;
+
+        System.out.println("Starting round " + currentRound + " of " + TOTAL_ROUNDS);
+
+        if (currentRound > TOTAL_ROUNDS) {
+            gameLogic.endGame();
+            return;
+        }
+
+        String roundMsg = "ROUND:" + currentRound + "/" + TOTAL_ROUNDS;
+        broadcastToGamePlayers(roundMsg);
+        
+        gameLogic.startRound(currentRound, gamePlayers.size());
+    }
+
+    public synchronized void endGame(String winnerName) {
+        if (!gameActive) return;
+
+        gameActive = false;
+        
+        if (gameStartTimer != null) {
+            gameStartTimer.cancel();
+            gameStartTimer = null;
+        }
+
+        String endMsg;
+        if (winnerName != null && !winnerName.isEmpty()) {
+            endMsg = "GAME_END:" + winnerName;
+            System.out.println("Winner: " + winnerName);
+        } else {
+            endMsg = "GAME_END:NO_WINNER";
+            System.out.println("No winner - Game ended without a winner");
+        }
+
+        broadcastToAll(endMsg);
+        gamePlayers.clear();
+    }
+
+    public void broadcastToAll(String message) {
+        synchronized (clients) {
+            for (ClientHandler c : clients) {
+                c.sendMessage(message);
+            }
+        }
+    }
+
+    public void broadcastToGamePlayers(String message) {
+        synchronized (gamePlayers) {
+            for (ClientHandler c : gamePlayers) {
+                c.sendMessage(message);
+            }
+        }
+    }
+
+    public void broadcastScores(String scoresData) {
+        broadcastToAll("SCORE:" + scoresData);
     }
     
-    private void stopCountdown() {
-        if (countdownTimer != null) {
-            countdownTimer.stop();
-            countdownTimer = null;
+    public void updateScores() {
+        String scoresData = gameLogic.getFormattedScores();
+        if (scoresData != null && !scoresData.isEmpty()) {
+            broadcastScores(scoresData);
         }
     }
 
-    private void processMessage(String msg) {
-        System.out.println("MSG: " + msg);
+    public synchronized void handlePlayerLeave(ClientHandler player) {
+        String username = player.getUsername();
+        System.out.println("Player left: " + username);
 
-        if (msg.startsWith("PLAYER_LIST:")) {
-            connectedListModel.clear();
-            String names = msg.substring(12);
-            if (!names.trim().isEmpty()) {
-                HashSet<String> unique = new HashSet<>();
-                for (String n : names.split(",")) {
-                    n = n.trim();
-                    if (!n.isEmpty() && unique.add(n)) {
-                        connectedListModel.addElement(n);
-                    }
-                }
-            }
-        }
-        else if (msg.startsWith("WAITING_LIST:")) {
-            waitingListModel.clear();
-            String names = msg.substring(13);
-            if (!names.trim().isEmpty()) {
-                HashSet<String> unique = new HashSet<>();
-                for (String n : names.split(",")) {
-                    n = n.trim();
-                    if (!n.isEmpty() && unique.add(n)) {
-                        waitingListModel.addElement(n);
-                    }
-                }
-            }
-        }
-        else if (msg.startsWith("WAITING_FULL:")) {
-            JOptionPane.showMessageDialog(this, msg.substring(13));
-            playBtn.setEnabled(true);
-        }
-        else if (msg.startsWith("PLAY_OK")) {
-            playBtn.setEnabled(false);
-            appendMessage("✅ تم الانضمام إلى غرفة الانتظار");
-        }
-        else if (msg.startsWith("WAITING_JOINED:")) {
-            appendMessage("✅ " + msg.substring(15));
-        }
-        else if (msg.startsWith("LEFT")) {
-            playBtn.setEnabled(true);
-            appendMessage("🚪 غادرت غرفة الانتظار");
-        }
-        else if (msg.startsWith("PLAYER_LEFT:")) {
-            String who = msg.substring(12);
-            appendMessage("⚠️ " + who + " غادر اللعبة");
-            connectedListModel.removeElement(who);
-            waitingListModel.removeElement(who);
-        }
-        else if (msg.startsWith("GAME_START")) {
-            showGameFrame();
-            answerField.setEnabled(true);
-            submitBtn.setEnabled(true);
-            setLevelImage("level1.png");
-            appendMessage("🎮 بدأت اللعبة!");
-        }
-        else if (msg.startsWith("GAME_TIMER:")) {
-            int seconds = Integer.parseInt(msg.substring(11));
-            System.out.println("Received GAME_TIMER: " + seconds);
-            startCountdown(seconds);
-        }
-        else if (msg.startsWith("ROUND:")) {
-            roundLabel.setText("الجولة: " + msg.substring(6));
-            answerField.setEnabled(true);
-            submitBtn.setEnabled(true);
-            answerField.setText("");
-            stopCooldown();
-            cooldownLabel.setText("");
-        }
-        else if (msg.startsWith("QUESTION:")) {
-            String[] parts = msg.split(":");
-            currentRound = Integer.parseInt(parts[1]);
-            String imageName = parts[2];
-            answerField.setEnabled(true);
-            submitBtn.setEnabled(true);
-            answerField.setText("");
-            answerField.requestFocus();
-            setLevelImage(imageName);
-            appendMessage("📝 سؤال جديد! اكتب إجابتك...");
-        }
-        else if (msg.startsWith("CORRECT:")) {
-            String who = msg.substring(8);
-            appendMessage("✅ " + who + " أجاب إجابة صحيحة!");
-            answerField.setEnabled(false);
-            submitBtn.setEnabled(false);
-            stopCooldown();
-            cooldownLabel.setText("");
-            if (who.equals(username)) {
-                appendMessage("🎉 إجابتك صحيحة! انتظر الجولة القادمة...");
-            }
-        }
-        else if (msg.startsWith("WRONG:")) {
-            String who = msg.substring(6);
-            appendMessage("❌ " + who + " أجاب إجابة خاطئة!");
-            if (who.equals(username)) {
-                answerField.setEnabled(false);
-                submitBtn.setEnabled(false);
-                startCooldown();
-            }
-        }
-        else if (msg.startsWith("COOLDOWN_START:")) {
-            String who = msg.substring(15);
-            appendMessage("⏰ " + who + " يجب أن ينتظر 30 ثانية قبل الإجابة مرة أخرى!");
-        }
-        else if (msg.startsWith("COOLDOWN_END:")) {
-            String who = msg.substring(13);
-            appendMessage("✅ " + who + " يمكنه الإجابة الآن!");
-            if (who.equals(username)) {
-                answerField.setEnabled(true);
-                submitBtn.setEnabled(true);
-                stopCooldown();
-                cooldownLabel.setText("");
-            }
-        }
-        else if (msg.startsWith("ON_COOLDOWN:")) {
-            String who = msg.substring(12);
-            appendMessage("⏰ " + who);
-        }
-        else if (msg.startsWith("ROUND_END:")) {
-            String winner = msg.substring(10);
-            appendMessage("🏁 " + winner + " أجاب إجابة صحيحة! الانتقال للجولة التالية...");
-            answerField.setEnabled(false);
-            submitBtn.setEnabled(false);
-            stopCooldown();
-            cooldownLabel.setText("");
-        }
-        else if (msg.startsWith("ROUND_ENDED:")) {
-            appendMessage("⚠️ " + msg.substring(12));
-            answerField.setEnabled(false);
-            submitBtn.setEnabled(false);
-        }
-        else if (msg.startsWith("ALREADY_CORRECT:")) {
-            appendMessage("⚠️ لقد أجبت إجابة صحيحة بالفعل في هذه الجولة!");
-            answerField.setEnabled(false);
-            submitBtn.setEnabled(false);
-        }
-        else if (msg.startsWith("NO_CORRECT:")) {
-            appendMessage("😅 " + msg.substring(11));
-            answerField.setEnabled(false);
-            submitBtn.setEnabled(false);
-            stopCooldown();
-            cooldownLabel.setText("");
-        }
-        else if (msg.startsWith("SCORE:")) {
-            scoreLabel.setText("<html><div style='text-align: center; font-size: 20px;'>" + msg.substring(6).replace(",", "<br>") + "</div></html>");
-        }
-        else if (msg.startsWith("GAME_END:")) {
-            stopCountdown();
-            stopCooldown();
-            String winner = msg.substring(9);
+        gamePlayers.remove(player);
+        waitingRoom.removePlayer(player);
+        
+        broadcastToAll("PLAYER_LEFT:" + username);
+        broadcastPlayerList();
+        broadcastWaitingRoomPlayers();
 
-            answerField.setEnabled(false);
-            submitBtn.setEnabled(false);
-
-            if (winner.equals("NO_WINNER")) {
-                setLevelImage("gameover.png");
-                JOptionPane.showMessageDialog(gameFrame != null ? gameFrame : this, "⏱ انتهى الوقت! لا يوجد فائز.");
-                appendMessage("⏱ انتهت اللعبة - لا يوجد فائز");
-            } else if (winner.equals(username)) {
-                setLevelImage("winner.png");
-                JOptionPane.showMessageDialog(gameFrame != null ? gameFrame : this, "🏆 لقد فزت!");
-                appendMessage("🏆 أنت الفائز!");
+        if (gameActive) {
+            if (gamePlayers.size() == 1) {
+                String winner = gamePlayers.get(0).getUsername();
+                broadcastToAll("PLAYER_WON:" + winner + " (All other players left)");
+                endGame(winner);
+            } else if (gamePlayers.isEmpty()) {
+                endGame(null);
             } else {
-                setLevelImage("gameover.png");
-                JOptionPane.showMessageDialog(gameFrame != null ? gameFrame : this, "انتهت اللعبة! الفائز: " + winner);
-                appendMessage("🏆 الفائز: " + winner);
+                updateScores();
             }
-            
-            hideGameFrame();
-            playBtn.setEnabled(true);
         }
     }
 
-    private void sendPlay() {
-        if (connected && !waitingListModel.contains(username)) {
-            out.println("PLAY");
-        }
-    }
-
-    private void sendLeave() {
-        if (!connected) return;
-
-        int choice = JOptionPane.showConfirmDialog(
-                this, "هل تريد مغادرة اللعبة؟", "تأكيد", JOptionPane.YES_NO_OPTION);
-
-        if (choice == JOptionPane.YES_OPTION) {
-            out.println("LEAVE");
-            waitingListModel.removeElement(username);
-            playBtn.setEnabled(true);
-            hideGameFrame();
-        }
-    }
-
-    private void sendAnswer() {
-        String answer = answerField.getText().trim();
-        if (answer.isEmpty()) {
-            appendMessage("⚠️ الرجاء إدخال إجابة!");
+    public void receiveAnswer(ClientHandler player, String answer, int round) {
+        if (!gameActive) {
+            player.sendMessage("ERROR:Game not active");
             return;
         }
-        if (answer.length() > 10) {
-            appendMessage("⚠️ الإجابة طويلة جداً! الحد الأقصى 10 حروف.");
-            return;
-        }
-        out.println("ANSWER:" + currentRound + ":" + answer);
-        answerField.setText("");
-    }
 
-    private void appendMessage(String msg) {
-        chatArea.append(msg + "\n");
-        chatArea.setCaretPosition(chatArea.getDocument().getLength());
+        System.out.println("Answer from " + player.getUsername() + ": " + answer);
+        gameLogic.submitAnswer(player.getUsername(), answer);
+        
+        updateScores();
+    }
+    
+    public void playerReadyToPlay(ClientHandler player) {
+        if (!gameActive && !waitingRoom.isPlayerInRoom(player)) {
+            addToWaitingRoom(player);
+            player.sendMessage("WAITING_ROOM_JOINED:You are now in the waiting room");
+        }
     }
 
     public static void main(String[] args) {
-        SwingUtilities.invokeLater(GameClient::new);
+        new Server().start(1234);
     }
 }

@@ -5,6 +5,8 @@ import java.awt.*;
 import java.io.*;
 import java.net.Socket;
 import java.util.HashSet;
+import java.awt.event.ActionEvent;
+import java.awt.event.ActionListener;
 
 public class GameClient extends JFrame {
 
@@ -27,6 +29,8 @@ public class GameClient extends JFrame {
     private boolean connected = false;
     private boolean listenerStarted = false;
 
+    // ====================== شاشة اللعبة المنفصلة ======================
+    private JFrame gameFrame;
     private JPanel gamePanel;
     private JLabel roundLabel;
     private JLabel imageLabel;
@@ -82,9 +86,10 @@ public class GameClient extends JFrame {
     }
 
     private void initializeMainGUI() {
-        setTitle("Multiplayer Game");
+        setTitle("Multiplayer Game - Waiting Room");
         setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
-        setExtendedState(JFrame.MAXIMIZED_BOTH);
+        setSize(1000, 700);
+        setLocationRelativeTo(null);
 
         JLabel bg = new JLabel(new ImageIcon(IMAGE_PATH + "img2.png"));
         bg.setLayout(new BorderLayout());
@@ -155,10 +160,6 @@ public class GameClient extends JFrame {
         bottom.add(new JScrollPane(chatArea), BorderLayout.CENTER);
         add(bottom, BorderLayout.SOUTH);
 
-        createGamePanel();
-        gamePanel.setVisible(false);
-        add(gamePanel, BorderLayout.EAST);
-
         connectBtn.addActionListener(e -> connectToServer());
         playBtn.addActionListener(e -> sendPlay());
         leaveBtn.addActionListener(e -> sendLeave());
@@ -166,51 +167,86 @@ public class GameClient extends JFrame {
         setVisible(true);
     }
 
-    private void createGamePanel() {
-        gamePanel = new JPanel();
-        gamePanel.setOpaque(false);
-        gamePanel.setPreferredSize(new Dimension(500, 700));
-        gamePanel.setLayout(new BoxLayout(gamePanel, BoxLayout.Y_AXIS));
-
-        roundLabel = new JLabel("Round: 0");
-        roundLabel.setForeground(Color.WHITE);
-        roundLabel.setFont(new Font("Segoe UI", Font.BOLD, 24));
-        roundLabel.setAlignmentX(Component.CENTER_ALIGNMENT);
-
+    // ====================== شاشة اللعبة المنفصلة ======================
+    private void createGameFrame() {
+        gameFrame = new JFrame("Multiplayer Game - Playing");
+        gameFrame.setDefaultCloseOperation(JFrame.DISPOSE_ON_CLOSE);
+        gameFrame.setExtendedState(JFrame.MAXIMIZED_BOTH);
+        
+        // ✅ إنشاء timerLabel أولاً
         timerLabel = new JLabel("⏱ 5:00");
         timerLabel.setForeground(Color.YELLOW);
-        timerLabel.setFont(new Font("Segoe UI", Font.BOLD, 28));
+        timerLabel.setFont(new Font("Segoe UI", Font.BOLD, 40));
         timerLabel.setAlignmentX(Component.CENTER_ALIGNMENT);
+        
+        gamePanel = new JPanel();
+        gamePanel.setOpaque(false);
+        gamePanel.setLayout(new BoxLayout(gamePanel, BoxLayout.Y_AXIS));
+        
+        roundLabel = new JLabel("Round: 0");
+        roundLabel.setForeground(Color.WHITE);
+        roundLabel.setFont(new Font("Segoe UI", Font.BOLD, 36));
+        roundLabel.setAlignmentX(Component.CENTER_ALIGNMENT);
 
         imageLabel = new JLabel();
         imageLabel.setAlignmentX(Component.CENTER_ALIGNMENT);
 
         scoreLabel = new JLabel("Scores");
         scoreLabel.setForeground(Color.YELLOW);
-        scoreLabel.setFont(new Font("Segoe UI", Font.BOLD, 20));
+        scoreLabel.setFont(new Font("Segoe UI", Font.BOLD, 28));
         scoreLabel.setAlignmentX(Component.CENTER_ALIGNMENT);
 
         answerField = new JTextField();
-        answerField.setMaximumSize(new Dimension(250, 40));
-        answerField.setFont(new Font("Segoe UI", Font.PLAIN, 20));
+        answerField.setMaximumSize(new Dimension(400, 50));
+        answerField.setPreferredSize(new Dimension(400, 50));
+        answerField.setFont(new Font("Segoe UI", Font.PLAIN, 24));
         answerField.addActionListener(e -> sendAnswer());
 
         submitBtn = new JButton("Submit Answer");
+        submitBtn.setFont(new Font("Segoe UI", Font.BOLD, 24));
         submitBtn.setAlignmentX(Component.CENTER_ALIGNMENT);
         submitBtn.addActionListener(e -> sendAnswer());
 
-        gamePanel.add(Box.createVerticalStrut(40));
+        gamePanel.add(Box.createVerticalStrut(50));
         gamePanel.add(timerLabel);
-        gamePanel.add(Box.createVerticalStrut(10));
+        gamePanel.add(Box.createVerticalStrut(20));
         gamePanel.add(roundLabel);
-        gamePanel.add(Box.createVerticalStrut(20));
+        gamePanel.add(Box.createVerticalStrut(30));
         gamePanel.add(imageLabel);
-        gamePanel.add(Box.createVerticalStrut(20));
+        gamePanel.add(Box.createVerticalStrut(30));
         gamePanel.add(scoreLabel);
-        gamePanel.add(Box.createVerticalStrut(20));
+        gamePanel.add(Box.createVerticalStrut(30));
         gamePanel.add(answerField);
-        gamePanel.add(Box.createVerticalStrut(10));
+        gamePanel.add(Box.createVerticalStrut(15));
         gamePanel.add(submitBtn);
+        gamePanel.add(Box.createVerticalStrut(50));
+        
+        gamePanel.setBackground(new Color(0, 0, 0, 150));
+        
+        JLabel bgImage = new JLabel(new ImageIcon(IMAGE_PATH + "img2.png"));
+        bgImage.setLayout(new BorderLayout());
+        bgImage.add(gamePanel, BorderLayout.CENTER);
+        
+        gameFrame.add(bgImage);
+    }
+    
+    private void setLevelImage(String path) {
+        ImageIcon icon = new ImageIcon(IMAGE_PATH + path);
+        Image img = icon.getImage().getScaledInstance(600, 400, Image.SCALE_SMOOTH);
+        imageLabel.setIcon(new ImageIcon(img));
+    }
+    
+    private void showGameFrame() {
+        if (gameFrame == null) {
+            createGameFrame();
+        }
+        gameFrame.setVisible(true);
+    }
+    
+    private void hideGameFrame() {
+        if (gameFrame != null) {
+            gameFrame.setVisible(false);
+        }
     }
 
     private void connectToServer() {
@@ -312,16 +348,26 @@ public class GameClient extends JFrame {
             waitingListModel.removeElement(who);
         }
         else if (msg.startsWith("GAME_START")) {
-            gamePanel.setVisible(true);
+            // ✅ أنشئ شاشة اللعبة أولاً قبل أي شيء
+            if (gameFrame == null) {
+                createGameFrame();
+            }
+            showGameFrame();
             answerField.setEnabled(true);
             submitBtn.setEnabled(true);
             setLevelImage("level1.png");
-            revalidate();
-            repaint();
             appendMessage("🎮 Game Started!");
         }
         else if (msg.startsWith("GAME_TIMER:")) {
             int seconds = Integer.parseInt(msg.substring(11));
+            System.out.println(">>> GAME_TIMER RECEIVED: " + seconds);
+            // ✅ تأكد من وجود timerLabel قبل بدء التايمر
+            if (timerLabel == null) {
+                System.out.println("Timer label is null, creating game frame first");
+                if (gameFrame == null) {
+                    createGameFrame();
+                }
+            }
             startCountdown(seconds);
         }
         else if (msg.startsWith("ROUND:")) {
@@ -352,12 +398,20 @@ public class GameClient extends JFrame {
         }
         else if (msg.startsWith("WRONG:")) {
             String who = msg.substring(6);
-            appendMessage("❌ " + who + " answered wrong - Try again!");
-            // ✅ يبقى حقل الإجابة مفتوحاً للمحاولة مرة أخرى
-            answerField.setEnabled(true);
-            submitBtn.setEnabled(true);
-            answerField.setText("");
-            answerField.requestFocus();
+            appendMessage("❌ " + who + " answered wrong!");
+            if (who.equals(username)) {
+                answerField.setEnabled(false);
+                submitBtn.setEnabled(false);
+                appendMessage("❌ Wrong answer! You cannot answer again this round.");
+            }
+        }
+        else if (msg.startsWith("ALREADY_ANSWERED:")) {
+            String who = msg.substring(17);
+            if (who.equals(username)) {
+                appendMessage("⚠️ You already answered this round!");
+                answerField.setEnabled(false);
+                submitBtn.setEnabled(false);
+            }
         }
         else if (msg.startsWith("ROUND_END:")) {
             String winner = msg.substring(10);
@@ -367,11 +421,6 @@ public class GameClient extends JFrame {
         }
         else if (msg.startsWith("ROUND_ENDED:")) {
             appendMessage("⚠️ " + msg.substring(12));
-            answerField.setEnabled(false);
-            submitBtn.setEnabled(false);
-        }
-        else if (msg.startsWith("ALREADY_CORRECT:")) {
-            appendMessage("⚠️ You already answered correctly this round!");
             answerField.setEnabled(false);
             submitBtn.setEnabled(false);
         }
@@ -393,38 +442,69 @@ public class GameClient extends JFrame {
 
             if (winner.equals("NO_WINNER")) {
                 setLevelImage("gameover.png");
-                JOptionPane.showMessageDialog(this, "⏱ Time's up! No winner this round.");
+                JOptionPane.showMessageDialog(gameFrame != null ? gameFrame : this, "⏱ Time's up! No winner.");
                 appendMessage("⏱ Game ended - No winner");
             } else if (winner.equals(username)) {
                 setLevelImage("winner.png");
-                JOptionPane.showMessageDialog(this, "🏆 You won!");
+                JOptionPane.showMessageDialog(gameFrame != null ? gameFrame : this, "🏆 You won!");
                 appendMessage("🏆 You are the winner!");
             } else {
                 setLevelImage("gameover.png");
-                JOptionPane.showMessageDialog(this, "Game Over! Winner: " + winner);
+                JOptionPane.showMessageDialog(gameFrame != null ? gameFrame : this, "Game Over! Winner: " + winner);
                 appendMessage("🏆 Winner: " + winner);
             }
+            
+            Timer closeTimer = new Timer(3000, e -> {
+                hideGameFrame();
+                playBtn.setEnabled(true);
+            });
+            closeTimer.setRepeats(false);
+            closeTimer.start();
         }
     }
 
+    // ✅ التايمر المعدل - يعمل بشكل صحيح
     private void startCountdown(int seconds) {
-        stopCountdown();
+        System.out.println(">>> TIMER STARTED with " + seconds + " seconds");
+        
+        // ✅ تأكد من أن timerLabel موجود
+        if (timerLabel == null) {
+            System.out.println("ERROR: timerLabel is null, cannot start timer");
+            return;
+        }
+        
+        if (countdownTimer != null) {
+            countdownTimer.stop();
+            countdownTimer = null;
+        }
+        
         timeLeft = seconds;
         updateTimerLabel();
-
-        countdownTimer = new Timer(1000, e -> {
-            timeLeft--;
-            updateTimerLabel();
-
-            if (timeLeft == 30) {
-                timerLabel.setForeground(Color.RED);
-                appendMessage("⚠️ 30 seconds left!");
-            }
-
-            if (timeLeft <= 0) {
-                stopCountdown();
+        
+        countdownTimer = new Timer(1000, new ActionListener() {
+            @Override
+            public void actionPerformed(ActionEvent e) {
+                if (timeLeft > 0) {
+                    timeLeft--;
+                    updateTimerLabel();
+                    System.out.println("Time left: " + timeLeft);
+                    
+                    if (timeLeft == 30) {
+                        timerLabel.setForeground(Color.RED);
+                        appendMessage("⚠️ 30 seconds left!");
+                    }
+                    
+                    if (timeLeft <= 0) {
+                        countdownTimer.stop();
+                        appendMessage("⏱ Time is up!");
+                        System.out.println(">>> TIMER FINISHED");
+                    }
+                } else {
+                    countdownTimer.stop();
+                }
             }
         });
+        countdownTimer.setInitialDelay(0);
         countdownTimer.start();
     }
 
@@ -436,9 +516,11 @@ public class GameClient extends JFrame {
     }
 
     private void updateTimerLabel() {
-        int mins = timeLeft / 60;
-        int secs = timeLeft % 60;
-        timerLabel.setText(String.format("⏱ %d:%02d", mins, secs));
+        if (timerLabel != null) {
+            int mins = timeLeft / 60;
+            int secs = timeLeft % 60;
+            timerLabel.setText(String.format("⏱ %02d:%02d", mins, secs));
+        }
     }
 
     private void sendPlay() {
@@ -457,20 +539,19 @@ public class GameClient extends JFrame {
             out.println("LEAVE");
             waitingListModel.removeElement(username);
             playBtn.setEnabled(true);
+            hideGameFrame();
         }
     }
 
     private void sendAnswer() {
         String answer = answerField.getText().trim();
-        if (answer.isEmpty()) return;
+        if (answer.isEmpty()) {
+            appendMessage("⚠️ Please enter an answer!");
+            return;
+        }
+         
         out.println("ANSWER:" + currentRound + ":" + answer);
         answerField.setText("");
-    }
-
-    private void setLevelImage(String path) {
-        ImageIcon icon = new ImageIcon(IMAGE_PATH + path);
-        Image img = icon.getImage().getScaledInstance(450, 320, Image.SCALE_SMOOTH);
-        imageLabel.setIcon(new ImageIcon(img));
     }
 
     private void appendMessage(String msg) {

@@ -167,7 +167,7 @@ public class GameClient extends JFrame {
         setVisible(true);
     }
 
-    // ====================== شاشة اللعبة المنفصلة ======================
+    // ====================== شاشة اللعبة ======================
     private void createGameFrame() {
         gameFrame = new JFrame("Multiplayer Game - Playing");
         gameFrame.setDefaultCloseOperation(JFrame.DISPOSE_ON_CLOSE);
@@ -201,7 +201,7 @@ public class GameClient extends JFrame {
         answerField.setFont(new Font("Segoe UI", Font.PLAIN, 24));
         answerField.addActionListener(e -> sendAnswer());
 
-        submitBtn = new JButton("Submit Answer");
+        submitBtn = new JButton("إرسال الإجابة");
         submitBtn.setFont(new Font("Segoe UI", Font.BOLD, 24));
         submitBtn.setAlignmentX(Component.CENTER_ALIGNMENT);
         submitBtn.addActionListener(e -> sendAnswer());
@@ -230,9 +230,13 @@ public class GameClient extends JFrame {
     }
     
     private void setLevelImage(String path) {
-        ImageIcon icon = new ImageIcon(IMAGE_PATH + path);
-        Image img = icon.getImage().getScaledInstance(600, 400, Image.SCALE_SMOOTH);
-        imageLabel.setIcon(new ImageIcon(img));
+        try {
+            ImageIcon icon = new ImageIcon(IMAGE_PATH + path);
+            Image img = icon.getImage().getScaledInstance(600, 400, Image.SCALE_SMOOTH);
+            imageLabel.setIcon(new ImageIcon(img));
+        } catch (Exception e) {
+            imageLabel.setText("صورة: " + path);
+        }
     }
     
     private void showGameFrame() {
@@ -246,8 +250,12 @@ public class GameClient extends JFrame {
     private void hideGameFrame() {
         if (gameFrame != null) {
             gameFrame.setVisible(false);
+            gameFrame.dispose();
+            gameFrame = null;
         }
-        // ✅ إظهار نافذة غرفة الانتظار مرة أخرى
+        // ✅ إظهار نافذة غرفة الانتظار مرة أخرى بعد انتهاء اللعبة
+        setVisible(true);
+        setExtendedState(JFrame.NORMAL);
         setVisible(true);
     }
 
@@ -350,7 +358,7 @@ public class GameClient extends JFrame {
             waitingListModel.removeElement(who);
         }
         else if (msg.startsWith("GAME_START")) {
-            // ✅ إخفاء نافذة غرفة الانتظار
+            // ✅ إخفاء نافذة غرفة الانتظار تماماً
             setVisible(false);
             
             if (gameFrame == null) {
@@ -388,7 +396,7 @@ public class GameClient extends JFrame {
             answerField.setText("");
             answerField.requestFocus();
             setLevelImage(imageName);
-            appendMessage("📝 New question! Type your answer...");
+            appendMessage("📝 سؤال جديد! اكتب إجابتك...");
         }
         else if (msg.startsWith("CORRECT:")) {
             String who = msg.substring(8);
@@ -553,6 +561,7 @@ public class GameClient extends JFrame {
          
         out.println("ANSWER:" + currentRound + ":" + answer);
         answerField.setText("");
+        appendMessage("📤 تم إرسال إجابتك: " + answer);
     }
 
     private void appendMessage(String msg) {

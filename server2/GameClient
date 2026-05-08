@@ -173,7 +173,6 @@ public class GameClient extends JFrame {
         gameFrame.setDefaultCloseOperation(JFrame.DISPOSE_ON_CLOSE);
         gameFrame.setExtendedState(JFrame.MAXIMIZED_BOTH);
         
-        // ✅ إنشاء timerLabel أولاً
         timerLabel = new JLabel("⏱ 5:00");
         timerLabel.setForeground(Color.YELLOW);
         timerLabel.setFont(new Font("Segoe UI", Font.BOLD, 40));
@@ -241,12 +240,15 @@ public class GameClient extends JFrame {
             createGameFrame();
         }
         gameFrame.setVisible(true);
+        gameFrame.toFront();
     }
     
     private void hideGameFrame() {
         if (gameFrame != null) {
             gameFrame.setVisible(false);
         }
+        // ✅ إظهار نافذة غرفة الانتظار مرة أخرى
+        setVisible(true);
     }
 
     private void connectToServer() {
@@ -348,7 +350,9 @@ public class GameClient extends JFrame {
             waitingListModel.removeElement(who);
         }
         else if (msg.startsWith("GAME_START")) {
-            // ✅ أنشئ شاشة اللعبة أولاً قبل أي شيء
+            // ✅ إخفاء نافذة غرفة الانتظار
+            setVisible(false);
+            
             if (gameFrame == null) {
                 createGameFrame();
             }
@@ -361,7 +365,6 @@ public class GameClient extends JFrame {
         else if (msg.startsWith("GAME_TIMER:")) {
             int seconds = Integer.parseInt(msg.substring(11));
             System.out.println(">>> GAME_TIMER RECEIVED: " + seconds);
-            // ✅ تأكد من وجود timerLabel قبل بدء التايمر
             if (timerLabel == null) {
                 System.out.println("Timer label is null, creating game frame first");
                 if (gameFrame == null) {
@@ -463,11 +466,9 @@ public class GameClient extends JFrame {
         }
     }
 
-    // ✅ التايمر المعدل - يعمل بشكل صحيح
     private void startCountdown(int seconds) {
         System.out.println(">>> TIMER STARTED with " + seconds + " seconds");
         
-        // ✅ تأكد من أن timerLabel موجود
         if (timerLabel == null) {
             System.out.println("ERROR: timerLabel is null, cannot start timer");
             return;

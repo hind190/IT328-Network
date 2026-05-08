@@ -6,8 +6,6 @@ import java.net.Socket;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
-import java.util.Timer;
-import java.util.TimerTask;
 
 public class Server {
 
@@ -22,8 +20,6 @@ public class Server {
     private boolean gameActive = false;
     private final int TOTAL_ROUNDS = 5;
     private final int MAX_PLAYERS = 4;
-    private Timer gameStartTimer;
-    private boolean waitingForPlayers = false;
 
     public Server() {
         this.gameLogic = new GameLogic(this);
@@ -94,16 +90,12 @@ public class Server {
     public void addToWaitingRoom(ClientHandler handler) {
         waitingRoom.addPlayer(handler);
         broadcastWaitingRoomPlayers();
-        checkAndStartGameCountdown();
+        checkAndStartGame(); // ✅ نتحقق فقط إذا اكتمل 4 لاعبين
     }
 
     public void removeFromWaitingRoom(ClientHandler handler) {
         waitingRoom.removePlayer(handler);
         broadcastWaitingRoomPlayers();
-        
-        if (waitingForPlayers && waitingRoom.getPlayerCount() < 2) {
-            cancelGameStartTimer();
-        }
     }
     
     private void broadcastWaitingRoomPlayers() {
@@ -123,72 +115,23 @@ public class Server {
         }
     }
     
-    private void checkAndStartGameCountdown() {
+    // ✅ تبدأ اللعبة فقط عندما يكتمل 4 لاعبين
+    private void checkAndStartGame() {
         int playerCount = waitingRoom.getPlayerCount();
         
         if (playerCount == MAX_PLAYERS && !gameActive) {
             System.out.println("4 players reached! Starting game immediately...");
-            if (gameStartTimer != null) {
-                gameStartTimer.cancel();
-                gameStartTimer = null;
-            }
-            waitingForPlayers = false;
             startGame();
-            return;
-        }
-        
-        if (playerCount >= 2 && !gameActive && !waitingForPlayers && playerCount < MAX_PLAYERS) {
-            startGameCountdown();
-        }
-    }
-    
-    private void startGameCountdown() {
-        waitingForPlayers = true;
-        
-        String countdownMsg = "COUNTDOWN:30 seconds until game starts. Waiting for " + 
-                              (MAX_PLAYERS - waitingRoom.getPlayerCount()) + " more player(s)...";
-        for (ClientHandler player : waitingRoom.getAllPlayers()) {
-            player.sendMessage(countdownMsg);
-        }
-        
-        gameStartTimer = new Timer();
-        gameStartTimer.schedule(new TimerTask() {
-            @Override
-            public void run() {
-                if (waitingForPlayers && !gameActive && waitingRoom.getPlayerCount() >= 2) {
-                    startGame();
-                }
-                waitingForPlayers = false;
-            }
-        }, 30000);
-    }
-    
-    private void cancelGameStartTimer() {
-        if (gameStartTimer != null) {
-            gameStartTimer.cancel();
-            gameStartTimer = null;
-        }
-        waitingForPlayers = false;
-        
-        String cancelMsg = "COUNTDOWN_CANCELLED:Not enough players. Waiting for more players...";
-        for (ClientHandler player : waitingRoom.getAllPlayers()) {
-            player.sendMessage(cancelMsg);
         }
     }
 
     public synchronized void startGame() {
         if (gameActive) return;
 
-        if (waitingRoom.getPlayerCount() < 2) {
-            broadcastToAll("ERROR:Not enough players");
+        if (waitingRoom.getPlayerCount() != MAX_PLAYERS) {
+            broadcastToAll("ERROR:Need exactly 4 players to start the game. Currently: " + waitingRoom.getPlayerCount());
             return;
         }
-        
-        if (gameStartTimer != null) {
-            gameStartTimer.cancel();
-            gameStartTimer = null;
-        }
-        waitingForPlayers = false;
 
         System.out.println("GAME STARTED with " + waitingRoom.getPlayerCount() + " players");
         gameActive = true;
@@ -226,11 +169,6 @@ public class Server {
         if (!gameActive) return;
 
         gameActive = false;
-        
-        if (gameStartTimer != null) {
-            gameStartTimer.cancel();
-            gameStartTimer = null;
-        }
 
         String endMsg;
         if (winnerName != null && !winnerName.isEmpty()) {

@@ -1,9 +1,7 @@
-package client;
+package Client;
 
 import javax.swing.*;
-import javax.swing.border.*;
 import java.awt.*;
-import java.awt.geom.RoundRectangle2D;
 import java.io.*;
 import java.net.Socket;
 import java.util.HashSet;
@@ -29,8 +27,7 @@ public class GameClient extends JFrame {
     private boolean connected = false;
     private boolean listenerStarted = false;
 
-    // ====================== GAME (شاشة منفصلة فل سكرين) ======================
-    private JFrame gameFrame;
+    private JPanel gamePanel;
     private JLabel roundLabel;
     private JLabel imageLabel;
     private JLabel scoreLabel;
@@ -85,10 +82,9 @@ public class GameClient extends JFrame {
     }
 
     private void initializeMainGUI() {
-        setTitle("Multiplayer Game - Waiting Room");
+        setTitle("Multiplayer Game");
         setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
-        setSize(1000, 700);
-        setLocationRelativeTo(null);
+        setExtendedState(JFrame.MAXIMIZED_BOTH);
 
         JLabel bg = new JLabel(new ImageIcon(IMAGE_PATH + "img2.png"));
         bg.setLayout(new BorderLayout());
@@ -159,6 +155,10 @@ public class GameClient extends JFrame {
         bottom.add(new JScrollPane(chatArea), BorderLayout.CENTER);
         add(bottom, BorderLayout.SOUTH);
 
+        createGamePanel();
+        gamePanel.setVisible(false);
+        add(gamePanel, BorderLayout.EAST);
+
         connectBtn.addActionListener(e -> connectToServer());
         playBtn.addActionListener(e -> sendPlay());
         leaveBtn.addActionListener(e -> sendLeave());
@@ -166,167 +166,51 @@ public class GameClient extends JFrame {
         setVisible(true);
     }
 
-    // ✅ كلاس JPanel بيضاوي (Oval Panel) - الأن يحتوي فقط على حقل الإجابة
-    class OvalPanel extends JPanel {
-        private Color bgColor = Color.WHITE;
-        private Color borderColor = new Color(0, 120, 215); // أزرق
-        private int arcSize = 40;
-        
-        public OvalPanel() {
-            setOpaque(false);
-            setLayout(new GridBagLayout());
-        }
-        
-        @Override
-        protected void paintComponent(Graphics g) {
-            Graphics2D g2 = (Graphics2D) g.create();
-            g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-            
-            // رسم الخلفية البيضاء بشكل بيضاوي
-            g2.setColor(bgColor);
-            g2.fillRoundRect(0, 0, getWidth(), getHeight(), arcSize, arcSize);
-            
-            // رسم الحدود الزرقاء
-            g2.setColor(borderColor);
-            g2.setStroke(new BasicStroke(3));
-            g2.drawRoundRect(1, 1, getWidth() - 2, getHeight() - 2, arcSize, arcSize);
-            
-            g2.dispose();
-            super.paintComponent(g);
-        }
-    }
+    private void createGamePanel() {
+        gamePanel = new JPanel();
+        gamePanel.setOpaque(false);
+        gamePanel.setPreferredSize(new Dimension(500, 700));
+        gamePanel.setLayout(new BoxLayout(gamePanel, BoxLayout.Y_AXIS));
 
-    // ====================== شاشة اللعبة فل سكرين ======================
-    private void createGameFrame() {
-        gameFrame = new JFrame("Multiplayer Game - Playing");
-        gameFrame.setDefaultCloseOperation(JFrame.DISPOSE_ON_CLOSE);
-        gameFrame.setExtendedState(JFrame.MAXIMIZED_BOTH);
-        gameFrame.setLayout(new BorderLayout());
-        
-        imageLabel = new JLabel();
-        imageLabel.setLayout(new BorderLayout());
-        gameFrame.add(imageLabel);
-        
-        JPanel overlayPanel = new JPanel();
-        overlayPanel.setOpaque(false);
-        overlayPanel.setLayout(new BoxLayout(overlayPanel, BoxLayout.Y_AXIS));
-        
-        timerLabel = new JLabel("⏱ 5:00", SwingConstants.CENTER);
-        timerLabel.setForeground(Color.YELLOW);
-        timerLabel.setFont(new Font("Segoe UI", Font.BOLD, 48));
-        timerLabel.setAlignmentX(Component.CENTER_ALIGNMENT);
-        
-        roundLabel = new JLabel("Round: 0/5", SwingConstants.CENTER);
+        roundLabel = new JLabel("Round: 0");
         roundLabel.setForeground(Color.WHITE);
-        roundLabel.setFont(new Font("Segoe UI", Font.BOLD, 36));
+        roundLabel.setFont(new Font("Segoe UI", Font.BOLD, 24));
         roundLabel.setAlignmentX(Component.CENTER_ALIGNMENT);
-        
-        scoreLabel = new JLabel("<html><div style='text-align: right;'>Scores:<br>...</div></html>");
+
+        timerLabel = new JLabel("⏱ 5:00");
+        timerLabel.setForeground(Color.YELLOW);
+        timerLabel.setFont(new Font("Segoe UI", Font.BOLD, 28));
+        timerLabel.setAlignmentX(Component.CENTER_ALIGNMENT);
+
+        imageLabel = new JLabel();
+        imageLabel.setAlignmentX(Component.CENTER_ALIGNMENT);
+
+        scoreLabel = new JLabel("Scores");
         scoreLabel.setForeground(Color.YELLOW);
-        scoreLabel.setFont(new Font("Segoe UI", Font.BOLD, 24));
-        
-        // ✅ حقل الإجابة - بدون حدود، شفاف
+        scoreLabel.setFont(new Font("Segoe UI", Font.BOLD, 20));
+        scoreLabel.setAlignmentX(Component.CENTER_ALIGNMENT);
+
         answerField = new JTextField();
-        answerField.setPreferredSize(new Dimension(400, 50));
-        answerField.setMaximumSize(new Dimension(400, 50));
-        answerField.setFont(new Font("Segoe UI", Font.PLAIN, 24));
-        answerField.setHorizontalAlignment(JTextField.CENTER);
-        answerField.setBorder(null);
-        answerField.setOpaque(false);
-        
-        // ✅ زر الإرسال - سيكون أسفل البيضاوي
-        submitBtn = new JButton("إرسال الإجابة");
-        submitBtn.setFont(new Font("Segoe UI", Font.BOLD, 24));
-        submitBtn.setPreferredSize(new Dimension(200, 50));
-        submitBtn.setMaximumSize(new Dimension(200, 50));
+        answerField.setMaximumSize(new Dimension(250, 40));
+        answerField.setFont(new Font("Segoe UI", Font.PLAIN, 20));
+        answerField.addActionListener(e -> sendAnswer());
+
+        submitBtn = new JButton("Submit Answer");
+        submitBtn.setAlignmentX(Component.CENTER_ALIGNMENT);
         submitBtn.addActionListener(e -> sendAnswer());
-        
-        // ✅ إنشاء اللوحة البيضاوية التي تحتوي فقط على حقل الإجابة
-        OvalPanel ovalPanel = new OvalPanel();
-        ovalPanel.setPreferredSize(new Dimension(450, 80));
-        ovalPanel.setMaximumSize(new Dimension(450, 80));
-        // توسيط حقل الإجابة داخل البيضاوي
-        GridBagConstraints gbc = new GridBagConstraints();
-        gbc.gridx = 0;
-        gbc.gridy = 0;
-        gbc.insets = new Insets(0, 20, 0, 20);
-        ovalPanel.add(answerField, gbc);
-        
-        // ✅ لوحة لتوسيط البيضاوي والزر تحته
-        JPanel centerAnswerPanel = new JPanel();
-        centerAnswerPanel.setOpaque(false);
-        centerAnswerPanel.setLayout(new BoxLayout(centerAnswerPanel, BoxLayout.Y_AXIS));
-        
-        // إضافة البيضاوي
-        JPanel ovalWrapper = new JPanel(new GridBagLayout());
-        ovalWrapper.setOpaque(false);
-        ovalWrapper.add(ovalPanel);
-        centerAnswerPanel.add(ovalWrapper);
-        
-        // إضافة مسافة صغيرة بين البيضاوي والزر
-        centerAnswerPanel.add(Box.createVerticalStrut(15));
-        
-        // إضافة الزر (موسّط)
-        JPanel btnWrapper = new JPanel(new GridBagLayout());
-        btnWrapper.setOpaque(false);
-        btnWrapper.add(submitBtn);
-        centerAnswerPanel.add(btnWrapper);
-        
-        // إضافة مسافة أسفل
-        centerAnswerPanel.add(Box.createVerticalStrut(30));
-        
-        // لوحة علوية تحتوي على timer, round, ومساحة مرنة
-        overlayPanel.add(Box.createVerticalStrut(30));
-        overlayPanel.add(timerLabel);
-        overlayPanel.add(Box.createVerticalStrut(10));
-        overlayPanel.add(roundLabel);
-        overlayPanel.add(Box.createVerticalGlue());
-        
-        // لوحة النتائج (يمين)
-        JPanel scorePanel = new JPanel(new BorderLayout());
-        scorePanel.setOpaque(false);
-        scorePanel.add(scoreLabel, BorderLayout.NORTH);
-        
-        // اللوحة السفلية (تحتوي على الـ centerAnswerPanel)
-        JPanel bottomPanel = new JPanel();
-        bottomPanel.setOpaque(false);
-        bottomPanel.setLayout(new BoxLayout(bottomPanel, BoxLayout.Y_AXIS));
-        bottomPanel.add(Box.createVerticalGlue());
-        bottomPanel.add(centerAnswerPanel);
-        bottomPanel.add(Box.createVerticalStrut(50));
-        
-        // إضافة جميع المكونات إلى الطبقات على صورة الخلفية
-        imageLabel.add(overlayPanel, BorderLayout.CENTER);
-        imageLabel.add(scorePanel, BorderLayout.EAST);
-        imageLabel.add(bottomPanel, BorderLayout.SOUTH);
-    }
-    
-    private void setFullScreenBackground(String imagePath) {
-        try {
-            Dimension screenSize = Toolkit.getDefaultToolkit().getScreenSize();
-            ImageIcon icon = new ImageIcon(IMAGE_PATH + imagePath);
-            Image img = icon.getImage();
-            Image scaledImg = img.getScaledInstance(screenSize.width, screenSize.height, Image.SCALE_SMOOTH);
-            imageLabel.setIcon(new ImageIcon(scaledImg));
-        } catch (Exception e) {
-            System.out.println("Error loading image: " + imagePath);
-            imageLabel.setBackground(Color.BLACK);
-            imageLabel.setOpaque(true);
-        }
-    }
-    
-    private void showGameFrame() {
-        if (gameFrame == null) {
-            createGameFrame();
-        }
-        setFullScreenBackground("level1.png");
-        gameFrame.setVisible(true);
-    }
-    
-    private void hideGameFrame() {
-        if (gameFrame != null) {
-            gameFrame.setVisible(false);
-        }
+
+        gamePanel.add(Box.createVerticalStrut(40));
+        gamePanel.add(timerLabel);
+        gamePanel.add(Box.createVerticalStrut(10));
+        gamePanel.add(roundLabel);
+        gamePanel.add(Box.createVerticalStrut(20));
+        gamePanel.add(imageLabel);
+        gamePanel.add(Box.createVerticalStrut(20));
+        gamePanel.add(scoreLabel);
+        gamePanel.add(Box.createVerticalStrut(20));
+        gamePanel.add(answerField);
+        gamePanel.add(Box.createVerticalStrut(10));
+        gamePanel.add(submitBtn);
     }
 
     private void connectToServer() {
@@ -428,9 +312,12 @@ public class GameClient extends JFrame {
             waitingListModel.removeElement(who);
         }
         else if (msg.startsWith("GAME_START")) {
-            showGameFrame();
+            gamePanel.setVisible(true);
             answerField.setEnabled(true);
             submitBtn.setEnabled(true);
+            setLevelImage("level1.png");
+            revalidate();
+            repaint();
             appendMessage("🎮 Game Started!");
         }
         else if (msg.startsWith("GAME_TIMER:")) {
@@ -451,7 +338,7 @@ public class GameClient extends JFrame {
             submitBtn.setEnabled(true);
             answerField.setText("");
             answerField.requestFocus();
-            setFullScreenBackground(imageName);
+            setLevelImage(imageName);
             appendMessage("📝 New question! Type your answer...");
         }
         else if (msg.startsWith("CORRECT:")) {
@@ -465,20 +352,12 @@ public class GameClient extends JFrame {
         }
         else if (msg.startsWith("WRONG:")) {
             String who = msg.substring(6);
-            appendMessage("❌ " + who + " answered wrong!");
-            if (who.equals(username)) {
-                appendMessage("❌ Wrong answer! You cannot answer again this round.");
-                answerField.setEnabled(false);
-                submitBtn.setEnabled(false);
-            }
-        }
-        else if (msg.startsWith("ALREADY_ANSWERED:")) {
-            String who = msg.substring(17);
-            if (who.equals(username)) {
-                appendMessage("⚠️ You already answered this round!");
-                answerField.setEnabled(false);
-                submitBtn.setEnabled(false);
-            }
+            appendMessage("❌ " + who + " answered wrong - Try again!");
+            // ✅ يبقى حقل الإجابة مفتوحاً للمحاولة مرة أخرى
+            answerField.setEnabled(true);
+            submitBtn.setEnabled(true);
+            answerField.setText("");
+            answerField.requestFocus();
         }
         else if (msg.startsWith("ROUND_END:")) {
             String winner = msg.substring(10);
@@ -491,13 +370,18 @@ public class GameClient extends JFrame {
             answerField.setEnabled(false);
             submitBtn.setEnabled(false);
         }
+        else if (msg.startsWith("ALREADY_CORRECT:")) {
+            appendMessage("⚠️ You already answered correctly this round!");
+            answerField.setEnabled(false);
+            submitBtn.setEnabled(false);
+        }
         else if (msg.startsWith("NO_CORRECT:")) {
             appendMessage("😅 " + msg.substring(11));
             answerField.setEnabled(false);
             submitBtn.setEnabled(false);
         }
         else if (msg.startsWith("SCORE:")) {
-            scoreLabel.setText("<html><div style='text-align: right; font-size: 20px;'>" + msg.substring(6).replace(",", "<br>") + "</div></html>");
+            scoreLabel.setText("<html>" + msg.substring(6).replace(",", "<br>") + "</html>");
         }
         else if (msg.startsWith("GAME_END:")) {
             stopCountdown();
@@ -508,25 +392,18 @@ public class GameClient extends JFrame {
             playBtn.setEnabled(true);
 
             if (winner.equals("NO_WINNER")) {
-                setFullScreenBackground("gameover.png");
-                JOptionPane.showMessageDialog(gameFrame != null ? gameFrame : this, "⏱ Time's up! No winner.");
+                setLevelImage("gameover.png");
+                JOptionPane.showMessageDialog(this, "⏱ Time's up! No winner this round.");
                 appendMessage("⏱ Game ended - No winner");
             } else if (winner.equals(username)) {
-                setFullScreenBackground("winner.png");
-                JOptionPane.showMessageDialog(gameFrame != null ? gameFrame : this, "🏆 You won!");
+                setLevelImage("winner.png");
+                JOptionPane.showMessageDialog(this, "🏆 You won!");
                 appendMessage("🏆 You are the winner!");
             } else {
-                setFullScreenBackground("gameover.png");
-                JOptionPane.showMessageDialog(gameFrame != null ? gameFrame : this, "Game Over! Winner: " + winner);
+                setLevelImage("gameover.png");
+                JOptionPane.showMessageDialog(this, "Game Over! Winner: " + winner);
                 appendMessage("🏆 Winner: " + winner);
             }
-            
-            Timer closeTimer = new Timer(3000, e -> {
-                hideGameFrame();
-                playBtn.setEnabled(true);
-            });
-            closeTimer.setRepeats(false);
-            closeTimer.start();
         }
     }
 
@@ -580,22 +457,20 @@ public class GameClient extends JFrame {
             out.println("LEAVE");
             waitingListModel.removeElement(username);
             playBtn.setEnabled(true);
-            hideGameFrame();
         }
     }
 
     private void sendAnswer() {
         String answer = answerField.getText().trim();
-        if (answer.isEmpty()) {
-            appendMessage("⚠️ Please enter an answer!");
-            return;
-        }
-        if (answer.length() > 20) {
-            appendMessage("⚠️ Answer too long! Max 20 characters.");
-            return;
-        }
+        if (answer.isEmpty()) return;
         out.println("ANSWER:" + currentRound + ":" + answer);
         answerField.setText("");
+    }
+
+    private void setLevelImage(String path) {
+        ImageIcon icon = new ImageIcon(IMAGE_PATH + path);
+        Image img = icon.getImage().getScaledInstance(450, 320, Image.SCALE_SMOOTH);
+        imageLabel.setIcon(new ImageIcon(img));
     }
 
     private void appendMessage(String msg) {
@@ -607,3 +482,8 @@ public class GameClient extends JFrame {
         SwingUtilities.invokeLater(GameClient::new);
     }
 }
+
+
+
+
+

@@ -7,6 +7,7 @@ import java.util.stream.Collectors;
 public class GameLogic {
 
     private Server server;
+    private boolean gameEnded = false;
     private Map<String, Integer> scores = new ConcurrentHashMap<>();
     private Set<String> answeredPlayers = new HashSet<>();
     private String correctAnswer;
@@ -55,7 +56,15 @@ public class GameLogic {
             }
         }, 30000);
     }
+public void removePlayerScore(String username) {
 
+    scores.remove(username);
+
+    server.updateScores();
+}
+public int getScore(String username) {
+    return scores.getOrDefault(username, 0);
+}
     public void checkAndStartGameIfFull(int currentCount) {
         waitingPlayersCount = currentCount;
         if (currentCount >= 4 && !gameStarted) {
@@ -132,14 +141,10 @@ public class GameLogic {
             return;
         }
 
-        if (answeredPlayers.contains(username)) {
-            server.broadcastToGamePlayers("ALREADY_ANSWERED:" + username);
-            return;
-        }
+       
 
         scores.putIfAbsent(username, 0);
-        answeredPlayers.add(username);
-        answeredCount++;
+        
 
         if (answer.equalsIgnoreCase(correctAnswer)) {
             scores.put(username, scores.get(username) + 1);
@@ -153,15 +158,8 @@ public class GameLogic {
             server.nextRound();
             
         } else {
-            server.broadcastToGamePlayers("WRONG:" + username);
-            sendScores();
-            
-            if (answeredCount >= totalPlayers && !correctAnswerGiven) {
-                roundActive = false;
-                server.broadcastToGamePlayers("NO_CORRECT:No one answered correctly!");
-                server.nextRound();
-            }
-        }
+    server.broadcastToGamePlayers("WRONG:" + username);
+}
     }
 
     private void sendScores() {
@@ -179,29 +177,10 @@ public class GameLogic {
                 .collect(Collectors.joining(","));
     }
 
-    // ✅ دالة الحصول على الترتيب (Rank)
-    public String getRankings() {
-        List<Map.Entry<String, Integer>> sorted = new ArrayList<>(scores.entrySet());
-        sorted.sort((a, b) -> b.getValue().compareTo(a.getValue()));
-        
-        StringBuilder rankBuilder = new StringBuilder();
-        int rank = 1;
-        for (Map.Entry<String, Integer> entry : sorted) {
-            rankBuilder.append(rank).append(". ").append(entry.getKey()).append(": ").append(entry.getValue()).append(" points\n");
-            rank++;
-        }
-        return rankBuilder.toString();
-    }
-
-    // ✅ إزالة لاعب من النتائج
-    public synchronized void removePlayerFromScores(String username) {
-        scores.remove(username);
-        answeredPlayers.remove(username);
-        sendScores();
-        System.out.println("Player " + username + " removed from scores");
-    }
-
     public void endGame() {
+        if (gameEnded) return;
+
+gameEnded = true;
         roundActive = false;
         cancelWaitingTimer();
         cancelGameTimer();
@@ -221,25 +200,22 @@ public class GameLogic {
             }
         }
 
-        // ✅ إرسال الترتيب (Rank)
-        String rankings = getRankings();
-        server.broadcastToAll("RANKINGS:" + rankings);
+       if (tiedPlayers.size() > 1) {
 
-        if (tiedPlayers.size() > 1) {
-            String winnerList = String.join(",", tiedPlayers);
-            server.broadcastToAll("WINNER_LIST:" + winnerList);
-            server.endGame(null);
-            System.out.println("Winners (tie): " + winnerList);
-        } else {
-            server.broadcastToAll("WINNER_LIST:" + winner);
-            server.endGame(winner);
-            System.out.println("Winner: " + winner);
-        }
+    String tiedNames = String.join(",", tiedPlayers);
+
+    server.broadcastToGamePlayers("GAME_END:TIE:" + tiedNames);
+
+} else {
+
+    server.endGame(winner);
+}
 
         scores.clear();
         answeredPlayers.clear();
         gameStarted = false;
         waitingPlayersCount = 0;
+        gameEnded = false;
     }
 
     public void onGameStart() {

@@ -90,7 +90,7 @@ public class Server {
     public void addToWaitingRoom(ClientHandler handler) {
         waitingRoom.addPlayer(handler);
         broadcastWaitingRoomPlayers();
-        checkAndStartGame();
+        checkAndStartGame(); // ✅ نتحقق فقط إذا اكتمل 4 لاعبين
     }
 
     public void removeFromWaitingRoom(ClientHandler handler) {
@@ -115,6 +115,7 @@ public class Server {
         }
     }
     
+    // ✅ تبدأ اللعبة فقط عندما يكتمل 4 لاعبين
     private void checkAndStartGame() {
         int playerCount = waitingRoom.getPlayerCount();
         
@@ -203,30 +204,39 @@ public class Server {
     }
     
     public void updateScores() {
-        String scoresData = gameLogic.getFormattedScores();
-        if (scoresData != null && !scoresData.isEmpty()) {
-            broadcastScores(scoresData);
-            System.out.println(">>> Scores updated: " + scoresData);
-        }
+
+    StringBuilder sb = new StringBuilder();
+
+    for (ClientHandler player : gamePlayers) {
+
+        String name = player.getUsername();
+
+        int score = gameLogic.getScore(name);
+
+        sb.append(name)
+          .append("=")
+          .append(score)
+          .append(",");
     }
 
-    // ✅ معالجة مغادرة اللاعب - إزالة من النتائج
+    if (sb.length() > 0) {
+        sb.deleteCharAt(sb.length() - 1);
+    }
+
+    broadcastScores(sb.toString());
+}
+
     public synchronized void handlePlayerLeave(ClientHandler player) {
         String username = player.getUsername();
         System.out.println("Player left: " + username);
 
         gamePlayers.remove(player);
+        gameLogic.removePlayerScore(player.getUsername());
         waitingRoom.removePlayer(player);
-        
-        // ✅ إزالة اللاعب من النتائج
-        gameLogic.removePlayerFromScores(username);
         
         broadcastToAll("PLAYER_LEFT:" + username);
         broadcastPlayerList();
         broadcastWaitingRoomPlayers();
-        
-        // ✅ تحديث النتائج للجميع بعد الإزالة
-        updateScores();
 
         if (gameActive) {
             if (gamePlayers.size() == 1) {
@@ -235,6 +245,8 @@ public class Server {
                 endGame(winner);
             } else if (gamePlayers.isEmpty()) {
                 endGame(null);
+            } else {
+                updateScores();
             }
         }
     }

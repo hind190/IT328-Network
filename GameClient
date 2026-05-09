@@ -1,11 +1,15 @@
+package Client;
+
 import javax.swing.*;
 import java.awt.*;
 import java.io.*;
 import java.net.Socket;
 import java.util.HashSet;
+import java.awt.event.ActionEvent;
+import java.awt.event.ActionListener;
 
 public class GameClient extends JFrame {
-//updated
+
     private JFrame startFrame;
     private Socket socket;
     private PrintWriter out;
@@ -25,17 +29,30 @@ public class GameClient extends JFrame {
     private boolean connected = false;
     private boolean listenerStarted = false;
 
+   
+    private JFrame gameFrame;
+    private JPanel gamePanel;
+    private JLabel roundLabel;
+    private JLabel imageLabel;
+    private JLabel scoreLabel;
+    private JLabel timerLabel;
+    private JTextField answerField;
+    private JButton submitBtn;
+    private int currentRound = 0;
+    private Timer countdownTimer;
+    private int timeLeft = 0;
+    
+private final String IMAGE_PATH = "src/client/image/";
     public GameClient() {
         createStartScreen();
     }
-
 
     private void createStartScreen() {
         startFrame = new JFrame("Game Start");
         startFrame.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
         startFrame.setExtendedState(JFrame.MAXIMIZED_BOTH);
 
-        ImageIcon bg = new ImageIcon("src/client/image/background.png");
+        ImageIcon bg = new ImageIcon(IMAGE_PATH + "background.png");
         Image img = bg.getImage();
         Dimension size = Toolkit.getDefaultToolkit().getScreenSize();
         Image scaled = img.getScaledInstance(size.width, size.height, Image.SCALE_SMOOTH);
@@ -43,7 +60,7 @@ public class GameClient extends JFrame {
         JLabel background = new JLabel(new ImageIcon(scaled));
         background.setLayout(new GridBagLayout());
 
-        ImageIcon startIcon = new ImageIcon("src/client/image/start.png");
+        ImageIcon startIcon = new ImageIcon(IMAGE_PATH + "start.png");
         Image startImg = startIcon.getImage().getScaledInstance(220, 90, Image.SCALE_SMOOTH);
         JButton startBtn = new JButton(new ImageIcon(startImg));
 
@@ -55,11 +72,7 @@ public class GameClient extends JFrame {
         GridBagConstraints gbc = new GridBagConstraints();
         gbc.gridx = 0;
         gbc.gridy = 0;
-        gbc.anchor = GridBagConstraints.CENTER;
-
-
         gbc.insets = new Insets(260, 0, 0, 0);
-
         background.add(startBtn, gbc);
 
         startBtn.addActionListener(e -> {
@@ -72,12 +85,13 @@ public class GameClient extends JFrame {
     }
 
     private void initializeMainGUI() {
-
-        setTitle("Multiplayer Game - Phase 1");
+        setTitle("Multiplayer Game - Waiting Room");
         setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
-        setExtendedState(JFrame.MAXIMIZED_BOTH);
+setExtendedState(JFrame.MAXIMIZED_BOTH);
+setLocationRelativeTo(null);
+setUndecorated(false);
 
-        JLabel bg = new JLabel(new ImageIcon("src/client/image/img2.png"));
+        JLabel bg = new JLabel(new ImageIcon(IMAGE_PATH + "img2.png"));
         bg.setLayout(new BorderLayout());
         setContentPane(bg);
 
@@ -92,112 +106,58 @@ public class GameClient extends JFrame {
         usernameField = new JTextField();
         usernameField.setPreferredSize(new Dimension(250, 35));
         usernameField.setFont(new Font("Segoe UI", Font.PLAIN, 18));
-        usernameField.setBackground(Color.white);
-        usernameField.setForeground(Color.BLACK);
-        usernameField.setCaretColor(Color.BLACK);
-        usernameField.setBorder(BorderFactory.createLineBorder(Color.DARK_GRAY));
         top.add(usernameField);
 
         connectBtn = new JButton("Connect");
-        connectBtn.setFont(new Font("Segoe UI", Font.BOLD, 16));
         top.add(connectBtn);
-
         add(top, BorderLayout.NORTH);
 
         JPanel center = new JPanel(new GridBagLayout());
         center.setOpaque(false);
-
         GridBagConstraints gbc = new GridBagConstraints();
         gbc.insets = new Insets(20, 40, 20, 40);
-        gbc.anchor = GridBagConstraints.CENTER;
 
         Color beige = new Color(230, 210, 170);
 
         connectedListModel = new DefaultListModel<>();
         connectedList = new JList<>(connectedListModel);
         connectedList.setBackground(beige);
-        connectedList.setForeground(Color.BLACK);
         connectedList.setFont(new Font("Segoe UI", Font.PLAIN, 18));
-
-        connectedList.setBorder(BorderFactory.createTitledBorder(
-                BorderFactory.createLineBorder(Color.DARK_GRAY),
-                "Connected Players",
-                0, 0,
-                new Font("Segoe UI", Font.BOLD, 22),
-                Color.BLACK
-        ));
-
+        connectedList.setBorder(BorderFactory.createTitledBorder("Connected Players"));
         JScrollPane scroll1 = new JScrollPane(connectedList);
-        scroll1.getViewport().setBackground(beige);
-        scroll1.setPreferredSize(new Dimension(500, 250));
+        scroll1.setPreferredSize(new Dimension(400, 250));
 
         waitingListModel = new DefaultListModel<>();
         waitingList = new JList<>(waitingListModel);
         waitingList.setBackground(beige);
-        waitingList.setForeground(Color.BLACK);
         waitingList.setFont(new Font("Segoe UI", Font.PLAIN, 18));
-
-        waitingList.setBorder(BorderFactory.createTitledBorder(
-                BorderFactory.createLineBorder(Color.DARK_GRAY),
-                "Waiting Room",
-                0, 0,
-                new Font("Segoe UI", Font.BOLD, 22),
-                Color.BLACK
-        ));
-
+        waitingList.setBorder(BorderFactory.createTitledBorder("Waiting Room"));
         JScrollPane scroll2 = new JScrollPane(waitingList);
-        scroll2.getViewport().setBackground(beige);
-        scroll2.setPreferredSize(new Dimension(500, 250));
+        scroll2.setPreferredSize(new Dimension(400, 250));
 
-        gbc.gridx = 0;
-        gbc.gridy = 0;
-        gbc.weightx = 1;
-        gbc.weighty = 1;
+        gbc.gridx = 0; gbc.gridy = 0;
         center.add(scroll1, gbc);
-
         gbc.gridx = 1;
         center.add(scroll2, gbc);
-
         add(center, BorderLayout.CENTER);
 
         JPanel bottom = new JPanel(new BorderLayout());
         bottom.setOpaque(false);
 
-        JPanel btnPanel = new JPanel(new FlowLayout(FlowLayout.CENTER, 60, 10));
+        JPanel btnPanel = new JPanel(new FlowLayout());
         btnPanel.setOpaque(false);
 
         playBtn = new JButton("Play");
         leaveBtn = new JButton("Leave");
-
-        playBtn.setFont(new Font("Segoe UI", Font.BOLD, 16));
-        leaveBtn.setFont(new Font("Segoe UI", Font.BOLD, 16));
-
-        playBtn.setPreferredSize(new Dimension(130, 40));
-        leaveBtn.setPreferredSize(new Dimension(130, 40));
-
-        playBtn.setBackground(Color.WHITE);
-        leaveBtn.setBackground(Color.WHITE);
-
-        playBtn.setForeground(Color.BLACK);
-        leaveBtn.setForeground(Color.BLACK);
-
-        playBtn.setFocusPainted(false);
-        leaveBtn.setFocusPainted(false);
-
         playBtn.setEnabled(false);
         leaveBtn.setEnabled(false);
-
         btnPanel.add(playBtn);
         btnPanel.add(leaveBtn);
-
         bottom.add(btnPanel, BorderLayout.NORTH);
 
         chatArea = new JTextArea(8, 40);
         chatArea.setEditable(false);
-        chatArea.setFont(new Font("Segoe UI", Font.PLAIN, 14));
-
         bottom.add(new JScrollPane(chatArea), BorderLayout.CENTER);
-
         add(bottom, BorderLayout.SOUTH);
 
         connectBtn.addActionListener(e -> connectToServer());
@@ -207,11 +167,121 @@ public class GameClient extends JFrame {
         setVisible(true);
     }
 
+    
+  private void createGameFrame() {
+
+    gameFrame = new JFrame("Multiplayer Game - Playing");
+    gameFrame.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
+    gameFrame.setExtendedState(JFrame.MAXIMIZED_BOTH);
+    gameFrame.setLayout(null);
+
+    Dimension size = Toolkit.getDefaultToolkit().getScreenSize();
+
+    
+    imageLabel = new JLabel();
+    imageLabel.setBounds(0, 0, size.width, size.height);
+    imageLabel.setLayout(null);
+
+   
+    timerLabel = new JLabel(" 5:00");
+    timerLabel.setForeground(Color.BLACK);
+    timerLabel.setFont(new Font("Segoe UI", Font.BOLD, 40));
+    timerLabel.setBounds(650, 20, 300, 50);
+
+  
+    roundLabel = new JLabel("Round: 0");
+    roundLabel.setForeground(Color.WHITE);
+    roundLabel.setFont(new Font("Segoe UI", Font.BOLD, 36));
+    roundLabel.setBounds(600, 80, 400, 50);
+
+    
+    scoreLabel = new JLabel("Scores");
+    scoreLabel.setForeground(Color.BLACK);
+scoreLabel.setFont(new Font("Arial", Font.BOLD, 22));
+scoreLabel.setBounds(
+        20,
+        size.height - 320,
+        420,
+        220
+);  
+    answerField = new JTextField();
+    answerField.setFont(new Font("Segoe UI", Font.PLAIN, 24));
+answerField.setBounds(
+        size.width / 2 - 210,
+        size.height - 280,
+        420,
+        50
+);
+scoreLabel.setForeground(Color.WHITE);
+scoreLabel.setOpaque(true);
+scoreLabel.setBackground(new Color(0, 0, 0, 180));
+scoreLabel.setVerticalAlignment(SwingConstants.TOP);
+answerField.addActionListener(e -> sendAnswer());
+
+  
+submitBtn = new JButton("Submit Answer");
+submitBtn.setFont(new Font("Segoe UI", Font.BOLD, 24));
+submitBtn.setBounds(
+        size.width / 2 - 125,
+        size.height - 200,
+        250,
+        50
+);
+submitBtn.addActionListener(e -> sendAnswer());
+
+    
+    imageLabel.add(timerLabel);
+    imageLabel.add(roundLabel);
+    imageLabel.add(scoreLabel);
+    imageLabel.add(answerField);
+    imageLabel.add(submitBtn);
+
+  
+    gameFrame.add(imageLabel);
+
+}  
+    
+ private void setLevelImage(String path) {
+    try {
+
+        Dimension size = Toolkit.getDefaultToolkit().getScreenSize();
+
+        ImageIcon icon = new ImageIcon(IMAGE_PATH + path);
+
+        Image img = icon.getImage().getScaledInstance(
+                size.width,
+                size.height,
+                Image.SCALE_SMOOTH
+        );
+
+        imageLabel.setIcon(new ImageIcon(img));
+
+    } catch (Exception e) {
+        e.printStackTrace();
+    }
+}
+    
+   private void showGameFrame() {
+    if (gameFrame == null) {
+        createGameFrame();
+    }
+
+    gameFrame.setVisible(true);
+    gameFrame.toFront();
+    gameFrame.requestFocus();
+}
+    
+   private void hideGameFrame() {
+    if (gameFrame != null) {
+        gameFrame.dispose();
+        gameFrame = null;
+    }
+}
+
     private void connectToServer() {
         if (connected) return;
 
         String name = usernameField.getText().trim();
-
         if (name.isEmpty()) {
             JOptionPane.showMessageDialog(this, "Enter username");
             return;
@@ -219,14 +289,11 @@ public class GameClient extends JFrame {
 
         try {
             socket = new Socket("localhost", 1234);
-
             out = new PrintWriter(socket.getOutputStream(), true);
             in = new BufferedReader(new InputStreamReader(socket.getInputStream()));
 
             username = name;
-
             out.println("CONNECT:" + username);
-
             connected = true;
             startListener();
 
@@ -235,10 +302,10 @@ public class GameClient extends JFrame {
             playBtn.setEnabled(true);
             leaveBtn.setEnabled(true);
 
-            JOptionPane.showMessageDialog(this, "Connected successfully 🎉");
+            JOptionPane.showMessageDialog(this, "Connected Successfully ");
 
         } catch (IOException e) {
-            JOptionPane.showMessageDialog(this, "Cannot connect to server");
+            JOptionPane.showMessageDialog(this, "Cannot connect to server! Make sure the server is running.");
         }
     }
 
@@ -254,58 +321,252 @@ public class GameClient extends JFrame {
                     SwingUtilities.invokeLater(() -> processMessage(finalMsg));
                 }
             } catch (IOException e) {
-                appendMessage("Connection lost");
+                SwingUtilities.invokeLater(() -> appendMessage("Connection lost"));
             }
         }).start();
     }
 
     private void processMessage(String msg) {
+        System.out.println("MSG: " + msg);
 
         if (msg.startsWith("PLAYER_LIST:")) {
             connectedListModel.clear();
             String names = msg.substring(12);
-
             if (!names.trim().isEmpty()) {
                 HashSet<String> unique = new HashSet<>();
                 for (String n : names.split(",")) {
                     n = n.trim();
-                    if (!n.isEmpty() && !unique.contains(n)) {
-                        unique.add(n);
+                    if (!n.isEmpty() && unique.add(n)) {
                         connectedListModel.addElement(n);
                     }
                 }
             }
         }
-
         else if (msg.startsWith("WAITING_LIST:")) {
             waitingListModel.clear();
             String names = msg.substring(13);
-
             if (!names.trim().isEmpty()) {
                 HashSet<String> unique = new HashSet<>();
                 for (String n : names.split(",")) {
                     n = n.trim();
-                    if (!n.isEmpty() && !unique.contains(n)) {
-                        unique.add(n);
+                    if (!n.isEmpty() && unique.add(n)) {
                         waitingListModel.addElement(n);
                     }
                 }
             }
         }
-
-        else if (msg.startsWith("PLAY_OK")) {
-            playBtn.setEnabled(false);
-            JOptionPane.showMessageDialog(this, "You joined the game 🎮");
-        }
-
-        else if (msg.startsWith("LEFT")) {
-            playBtn.setEnabled(true);
-            JOptionPane.showMessageDialog(this, "You left the game 🚪");
-        }
-
         else if (msg.startsWith("WAITING_FULL:")) {
             JOptionPane.showMessageDialog(this, msg.substring(13));
             playBtn.setEnabled(true);
+        }
+        else if (msg.startsWith("PLAY_OK")) {
+            playBtn.setEnabled(false);
+            appendMessage(" Joined waiting room");
+        }
+        else if (msg.startsWith("WAITING_JOINED:")) {
+            appendMessage(" " + msg.substring(15));
+        }
+        else if (msg.startsWith("LEFT")) {
+            playBtn.setEnabled(true);
+            appendMessage(" You left the waiting room");
+        }
+        else if (msg.startsWith("PLAYER_LEFT:")) {
+            String who = msg.substring(12);
+            appendMessage(" " + who + " left the game");
+            connectedListModel.removeElement(who);
+            waitingListModel.removeElement(who);
+        }
+        else if (msg.startsWith("GAME_START")) {
+
+   
+    dispose();
+
+  
+    if (gameFrame == null) {
+        createGameFrame();
+    }
+
+    
+    gameFrame.setExtendedState(JFrame.MAXIMIZED_BOTH);
+
+    
+    gameFrame.setVisible(true);
+    gameFrame.toFront();
+
+    answerField.setEnabled(true);
+    submitBtn.setEnabled(true);
+
+    setLevelImage("level1.png");
+
+    appendMessage(" Game Started!");
+}
+        else if (msg.startsWith("GAME_TIMER:")) {
+            int seconds = Integer.parseInt(msg.substring(11));
+            System.out.println(">>> GAME_TIMER RECEIVED: " + seconds);
+            if (timerLabel == null) {
+                System.out.println("Timer label is null, creating game frame first");
+                if (gameFrame == null) {
+                    createGameFrame();
+                }
+            }
+            startCountdown(seconds);
+        }
+        else if (msg.startsWith("ROUND:")) {
+            roundLabel.setText("Round: " + msg.substring(6));
+            answerField.setEnabled(true);
+            submitBtn.setEnabled(true);
+            answerField.setText("");
+        }
+        else if (msg.startsWith("QUESTION:")) {
+            String[] parts = msg.split(":");
+            currentRound = Integer.parseInt(parts[1]);
+            String imageName = parts[2];
+            answerField.setEnabled(true);
+            submitBtn.setEnabled(true);
+            answerField.setVisible(true);
+submitBtn.setVisible(true);
+            answerField.setText("");
+            answerField.requestFocus();
+            setLevelImage(imageName);
+            appendMessage(" سؤال جديد! اكتب إجابتك...");
+        }
+        else if (msg.startsWith("CORRECT:")) {
+            String who = msg.substring(8);
+            appendMessage(" " + who + " answered correctly!");
+            answerField.setEnabled(false);
+            submitBtn.setEnabled(false);
+            answerField.setVisible(false);
+submitBtn.setVisible(false);
+            if (who.equals(username)) {
+                appendMessage(" You got it right! Waiting for next round...");
+            }
+        }
+        else if (msg.startsWith("WRONG:")) {
+            String who = msg.substring(6);
+            appendMessage(" " + who + " answered wrong!");
+            if (who.equals(username)) {
+    appendMessage(" Wrong answer! Try again.");
+}
+        }
+        else if (msg.startsWith("ALREADY_ANSWERED:")) {
+            String who = msg.substring(17);
+            if (who.equals(username)) {
+                appendMessage(" You already answered this round!");
+                answerField.setEnabled(false);
+                submitBtn.setEnabled(false);
+            }
+        }
+        else if (msg.startsWith("ROUND_END:")) {
+            String winner = msg.substring(10);
+            appendMessage(" " + winner + " answered correctly! Moving to next round...");
+            answerField.setEnabled(false);
+            submitBtn.setEnabled(false);
+        }
+        else if (msg.startsWith("ROUND_ENDED:")) {
+            appendMessage(" " + msg.substring(12));
+            answerField.setEnabled(false);
+            submitBtn.setEnabled(false);
+        }
+        else if (msg.startsWith("NO_CORRECT:")) {
+            appendMessage(" " + msg.substring(11));
+            answerField.setEnabled(false);
+            submitBtn.setEnabled(false);
+        }
+        else if (msg.startsWith("SCORE:")) {
+String scores = msg.substring(6);
+
+String formatted =
+        "<html><div style='padding:10px;'>" +
+        scores.replace(",", "<br>") +
+        "</div></html>";
+
+scoreLabel.setText(formatted);        }
+        else if (msg.startsWith("GAME_END:")) {
+            stopCountdown();
+            String winner = msg.substring(9);
+
+            answerField.setEnabled(false);
+            submitBtn.setEnabled(false);
+            playBtn.setEnabled(true);
+
+            if (winner.equals("NO_WINNER")) {
+                setLevelImage("drow.png");
+                JOptionPane.showMessageDialog(gameFrame != null ? gameFrame : this, " No winner.");
+                appendMessage(" Game ended - No winner");
+            } else if (winner.equals(username)) {
+                setLevelImage("winner.png");
+                JOptionPane.showMessageDialog(gameFrame != null ? gameFrame : this, " You won!");
+                appendMessage(" You are the winner!");
+            } else {
+                setLevelImage("gameover.png");
+                JOptionPane.showMessageDialog(gameFrame != null ? gameFrame : this, "Game Over! Winner: " + winner);
+                appendMessage(" Winner: " + winner);
+            }
+            
+            Timer closeTimer = new Timer(3000, e -> {
+                hideGameFrame();
+                playBtn.setEnabled(true);
+            });
+            closeTimer.setRepeats(false);
+            closeTimer.start();
+        }
+    }
+
+    private void startCountdown(int seconds) {
+        System.out.println(">>> TIMER STARTED with " + seconds + " seconds");
+        
+        if (timerLabel == null) {
+            System.out.println("ERROR: timerLabel is null, cannot start timer");
+            return;
+        }
+        
+        if (countdownTimer != null) {
+            countdownTimer.stop();
+            countdownTimer = null;
+        }
+        
+        timeLeft = seconds;
+        updateTimerLabel();
+        
+        countdownTimer = new Timer(1000, new ActionListener() {
+            @Override
+            public void actionPerformed(ActionEvent e) {
+                if (timeLeft > 0) {
+                    timeLeft--;
+                    updateTimerLabel();
+                    System.out.println("Time left: " + timeLeft);
+                    
+                    if (timeLeft == 30) {
+                        timerLabel.setForeground(Color.RED);
+                        appendMessage(" 30 seconds left!");
+                    }
+                    
+                    if (timeLeft <= 0) {
+                        countdownTimer.stop();
+                        appendMessage(" Time is up!");
+                        System.out.println(">>> TIMER FINISHED");
+                    }
+                } else {
+                    countdownTimer.stop();
+                }
+            }
+        });
+        countdownTimer.setInitialDelay(0);
+        countdownTimer.start();
+    }
+
+    private void stopCountdown() {
+        if (countdownTimer != null) {
+            countdownTimer.stop();
+            countdownTimer = null;
+        }
+    }
+
+    private void updateTimerLabel() {
+        if (timerLabel != null) {
+            int mins = timeLeft / 60;
+            int secs = timeLeft % 60;
+            timerLabel.setText(String.format("%02d:%02d", mins, secs));
         }
     }
 
@@ -319,21 +580,31 @@ public class GameClient extends JFrame {
         if (!connected) return;
 
         int choice = JOptionPane.showConfirmDialog(
-                this,
-                "Are you sure you want to leave?",
-                "Confirm Leave",
-                JOptionPane.YES_NO_OPTION
-        );
+                this, "Leave game?", "Confirm", JOptionPane.YES_NO_OPTION);
 
         if (choice == JOptionPane.YES_OPTION) {
             out.println("LEAVE");
             waitingListModel.removeElement(username);
             playBtn.setEnabled(true);
+            hideGameFrame();
         }
+    }
+
+    private void sendAnswer() {
+        String answer = answerField.getText().trim();
+        if (answer.isEmpty()) {
+            appendMessage(" Please enter an answer!");
+            return;
+        }
+         
+        out.println("ANSWER:" + currentRound + ":" + answer);
+        answerField.setText("");
+        appendMessage(" تم إرسال إجابتك: " + answer);
     }
 
     private void appendMessage(String msg) {
         chatArea.append(msg + "\n");
+        chatArea.setCaretPosition(chatArea.getDocument().getLength());
     }
 
     public static void main(String[] args) {

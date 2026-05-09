@@ -90,7 +90,7 @@ public class Server {
     public void addToWaitingRoom(ClientHandler handler) {
         waitingRoom.addPlayer(handler);
         broadcastWaitingRoomPlayers();
-        checkAndStartGame(); 
+        checkAndStartGame();
     }
 
     public void removeFromWaitingRoom(ClientHandler handler) {
@@ -114,7 +114,6 @@ public class Server {
             c.sendMessage(msg);
         }
     }
-    
     
     private void checkAndStartGame() {
         int playerCount = waitingRoom.getPlayerCount();
@@ -207,9 +206,11 @@ public class Server {
         String scoresData = gameLogic.getFormattedScores();
         if (scoresData != null && !scoresData.isEmpty()) {
             broadcastScores(scoresData);
+            System.out.println(">>> Scores updated: " + scoresData);
         }
     }
 
+    // ✅ معالجة مغادرة اللاعب - إزالة من النتائج
     public synchronized void handlePlayerLeave(ClientHandler player) {
         String username = player.getUsername();
         System.out.println("Player left: " + username);
@@ -217,9 +218,15 @@ public class Server {
         gamePlayers.remove(player);
         waitingRoom.removePlayer(player);
         
+        // ✅ إزالة اللاعب من النتائج
+        gameLogic.removePlayerFromScores(username);
+        
         broadcastToAll("PLAYER_LEFT:" + username);
         broadcastPlayerList();
         broadcastWaitingRoomPlayers();
+        
+        // ✅ تحديث النتائج للجميع بعد الإزالة
+        updateScores();
 
         if (gameActive) {
             if (gamePlayers.size() == 1) {
@@ -228,8 +235,6 @@ public class Server {
                 endGame(winner);
             } else if (gamePlayers.isEmpty()) {
                 endGame(null);
-            } else {
-                updateScores();
             }
         }
     }

@@ -29,7 +29,6 @@ public class GameClient extends JFrame {
     private boolean connected = false;
     private boolean listenerStarted = false;
 
-    // ====================== شاشة اللعبة المنفصلة ======================
     private JFrame gameFrame;
     private JPanel gamePanel;
     private JLabel roundLabel;
@@ -167,7 +166,6 @@ setUndecorated(false);
         setVisible(true);
     }
 
-    // ====================== شاشة اللعبة ======================
   private void createGameFrame() {
 
     gameFrame = new JFrame("Multiplayer Game - Playing");
@@ -177,24 +175,20 @@ setUndecorated(false);
 
     Dimension size = Toolkit.getDefaultToolkit().getScreenSize();
 
-    // ===== صورة الخلفية =====
     imageLabel = new JLabel();
     imageLabel.setBounds(0, 0, size.width, size.height);
     imageLabel.setLayout(null);
 
-    // ===== التايمر =====
     timerLabel = new JLabel("⏱ 5:00");
     timerLabel.setForeground(Color.BLACK);
     timerLabel.setFont(new Font("Segoe UI", Font.BOLD, 40));
     timerLabel.setBounds(650, 20, 300, 50);
 
-    // ===== الراوند =====
     roundLabel = new JLabel("Round: 0");
     roundLabel.setForeground(Color.WHITE);
     roundLabel.setFont(new Font("Segoe UI", Font.BOLD, 36));
     roundLabel.setBounds(600, 80, 400, 50);
 
-    // ===== السكور =====
     scoreLabel = new JLabel("Scores");
     scoreLabel.setForeground(Color.BLACK);
 scoreLabel.setFont(new Font("Arial", Font.BOLD, 22));
@@ -203,7 +197,7 @@ scoreLabel.setBounds(
         size.height - 320,
         420,
         220
-);   // ===== مربع الإجابة =====
+);   
     answerField = new JTextField();
     answerField.setFont(new Font("Segoe UI", Font.PLAIN, 24));
 answerField.setBounds(
@@ -218,7 +212,7 @@ scoreLabel.setBackground(new Color(0, 0, 0, 180));
 scoreLabel.setVerticalAlignment(SwingConstants.TOP);
 answerField.addActionListener(e -> sendAnswer());
 
-    // ===== زر الإرسال =====
+    
 submitBtn = new JButton("Submit Answer");
 submitBtn.setFont(new Font("Segoe UI", Font.BOLD, 24));
 submitBtn.setBounds(
@@ -228,7 +222,7 @@ submitBtn.setBounds(
         50
 );
 submitBtn.addActionListener(e -> sendAnswer());
-// ===== زر الخروج =====
+
 JButton leaveGameBtn = new JButton("Leave Game");
 leaveGameBtn.setVisible(true);
 
@@ -243,7 +237,7 @@ leaveGameBtn.setBounds(
 
 leaveGameBtn.addActionListener(e -> sendLeave());
 
-    // ===== إضافة العناصر فوق الصورة =====
+    
    imageLabel.add(timerLabel);
 imageLabel.add(roundLabel);
 imageLabel.add(scoreLabel);
@@ -251,7 +245,7 @@ imageLabel.add(answerField);
 imageLabel.add(submitBtn);
 imageLabel.add(leaveGameBtn);
 
-    // ===== إضافة الخلفية =====
+    
     gameFrame.add(imageLabel);
 
 }  
@@ -393,18 +387,18 @@ imageLabel.add(leaveGameBtn);
         }
         else if (msg.startsWith("GAME_START")) {
 
-    // إغلاق شاشة الويتينق بالكامل
+    
     dispose();
 
-    // إنشاء شاشة اللعبة
+    
     if (gameFrame == null) {
         createGameFrame();
     }
 
-    // فل سكرين حقيقي
+    
     gameFrame.setExtendedState(JFrame.MAXIMIZED_BOTH);
 
-    // إظهار الشاشة
+    
     gameFrame.setVisible(true);
     gameFrame.toFront();
 

@@ -61,10 +61,13 @@ public class ClientHandler extends Thread {
                     sendMessage("WAITING_JOINED:You have joined the waiting room");
                 }
                 else if (message.startsWith("LEAVE")) {
-                    server.removeFromWaitingRoom(this);
-                    sendMessage("LEFT:You left waiting room");
-                    server.broadcastPlayerList();
-                }
+
+    server.handlePlayerLeave(this);
+
+    sendMessage("LEFT:You left the game");
+
+    server.broadcastPlayerList();
+}
                 else if (message.startsWith("ANSWER:")) {
                     String[] parts = message.split(":", 3);
                     if (parts.length >= 3) {

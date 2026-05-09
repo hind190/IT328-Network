@@ -132,10 +132,14 @@ public class GameLogic {
             return;
         }
 
-       
+        if (answeredPlayers.contains(username)) {
+            server.broadcastToGamePlayers("ALREADY_ANSWERED:" + username);
+            return;
+        }
 
         scores.putIfAbsent(username, 0);
-        
+        answeredPlayers.add(username);
+        answeredCount++;
 
         if (answer.equalsIgnoreCase(correctAnswer)) {
             scores.put(username, scores.get(username) + 1);
@@ -149,8 +153,15 @@ public class GameLogic {
             server.nextRound();
             
         } else {
-    server.broadcastToGamePlayers("WRONG:" + username);
-}
+            server.broadcastToGamePlayers("WRONG:" + username);
+            sendScores();
+            
+            if (answeredCount >= totalPlayers && !correctAnswerGiven) {
+                roundActive = false;
+                server.broadcastToGamePlayers("NO_CORRECT:No one answered correctly!");
+                server.nextRound();
+            }
+        }
     }
 
     private void sendScores() {
@@ -166,6 +177,28 @@ public class GameLogic {
         return server.getGamePlayers().stream()
                 .map(p -> p.getUsername() + "=" + scores.getOrDefault(p.getUsername(), 0))
                 .collect(Collectors.joining(","));
+    }
+
+    // ✅ دالة الحصول على الترتيب (Rank)
+    public String getRankings() {
+        List<Map.Entry<String, Integer>> sorted = new ArrayList<>(scores.entrySet());
+        sorted.sort((a, b) -> b.getValue().compareTo(a.getValue()));
+        
+        StringBuilder rankBuilder = new StringBuilder();
+        int rank = 1;
+        for (Map.Entry<String, Integer> entry : sorted) {
+            rankBuilder.append(rank).append(". ").append(entry.getKey()).append(": ").append(entry.getValue()).append(" points\n");
+            rank++;
+        }
+        return rankBuilder.toString();
+    }
+
+    // ✅ إزالة لاعب من النتائج
+    public synchronized void removePlayerFromScores(String username) {
+        scores.remove(username);
+        answeredPlayers.remove(username);
+        sendScores();
+        System.out.println("Player " + username + " removed from scores");
     }
 
     public void endGame() {
@@ -188,10 +221,19 @@ public class GameLogic {
             }
         }
 
+        // ✅ إرسال الترتيب (Rank)
+        String rankings = getRankings();
+        server.broadcastToAll("RANKINGS:" + rankings);
+
         if (tiedPlayers.size() > 1) {
+            String winnerList = String.join(",", tiedPlayers);
+            server.broadcastToAll("WINNER_LIST:" + winnerList);
             server.endGame(null);
+            System.out.println("Winners (tie): " + winnerList);
         } else {
+            server.broadcastToAll("WINNER_LIST:" + winner);
             server.endGame(winner);
+            System.out.println("Winner: " + winner);
         }
 
         scores.clear();
